@@ -169,7 +169,8 @@ function handleOrientation(event) {
     // Update geo dot direction based on compass
     // 0° = North, but canvas coordinates: 0° = right, 90° = down
     // So we need to convert: compass 0° (North) = canvas -90°
-    geoDot.direction = (360 - deviceOrientation.alpha) % 360;
+    // CHANGED: Removed the 360- inversion to make dot move opposite way
+    geoDot.direction = deviceOrientation.alpha; // Changed from (360 - deviceOrientation.alpha) % 360
     
     // Update geo dot position
     updateGeoDotPosition();
@@ -554,15 +555,15 @@ function drawRadarUI() {
     ctx.lineTo(endX, endY);
     ctx.stroke();
     
-    // Draw N/S/E/W indicator
-    ctx.fillStyle = "#32ff32"; // Changed to green to match
-    ctx.font = "14px monospace";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
+    // REMOVED: N/S/E/W indicator text
+    // ctx.fillStyle = "#32ff32"; // Changed to green to match
+    // ctx.font = "14px monospace";
+    // ctx.textAlign = "center";
+    // ctx.textBaseline = "middle";
     
-    // Show compass direction
-    const directionText = getDirectionText(geoDot.direction);
-    ctx.fillText(`${directionText} (${Math.round(geoDot.direction)}°)`, geoDot.x, geoDot.y - 25);
+    // Show compass direction - REMOVED
+    // const directionText = getDirectionText(geoDot.direction);
+    // ctx.fillText(`${directionText} (${Math.round(geoDot.direction)}°)`, geoDot.x, geoDot.y - 25);
   }
   // =====================================
 
@@ -746,18 +747,7 @@ function drawRadarUI() {
 }
 
 // ===== ADDED: Helper function for direction text =====
-function getDirectionText(degrees) {
-  if (degrees >= 337.5 || degrees < 22.5) return "N";
-  if (degrees >= 22.5 && degrees < 67.5) return "NE";
-  if (degrees >= 67.5 && degrees < 112.5) return "E";
-  if (degrees >= 112.5 && degrees < 157.5) return "SE";
-  if (degrees >= 157.5 && degrees < 202.5) return "S";
-  if (degrees >= 202.5 && degrees < 247.5) return "SW";
-  if (degrees >= 247.5 && degrees < 292.5) return "W";
-  if (degrees >= 292.5 && degrees < 337.5) return "NW";
-  return "?";
-}
-// =====================================================
+// REMOVED: getDirectionText function is no longer needed since we removed the text display
 
 // ===== ADDED: Initialize device orientation =====
 initDeviceOrientation();
