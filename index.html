@@ -573,7 +573,7 @@ function drawRadarUI() {
   // Initialize warp timer on first run
   if (!lastWarpTime) {
     lastWarpTime = now;
-    warpsThisCycle = Math.floor(Math.random() * 20) + 1; // 1-4 warps
+    warpsThisCycle = Math.floor(Math.random() * 20) + 15; // 1-4 warps
   }
   
   // Check if 5 minutes have passed for warp cycle
@@ -760,4 +760,5 @@ drawEverything();
 </script>
 </body>
 </html>
+
 
