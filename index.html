@@ -240,7 +240,7 @@ function updateGeoDotPosition() {
   // Check if angle is within radar bounds
   geoDot.visibleInRadar = (normalizedAngle >= startAngle && normalizedAngle <= endAngle);
   
-  // ===== ADDED: Determine which border to highlight =====
+  // ===== FIXED: Better logic for determining which border to highlight =====
   // Reset all highlights
   borderHighlights.left = false;
   borderHighlights.right = false;
@@ -248,32 +248,25 @@ function updateGeoDotPosition() {
   
   // Update highlight intensity based on dot position
   if (!geoDot.visibleInRadar) {
-    // Determine which side the dot is on relative to radar
-    // Calculate relative angle to center of radar (which points upward)
-    const radarCenterAngle = (startAngle + endAngle) / 2; // Center of radar arc
-    
-    // Calculate angle difference
-    let angleDiff = normalizedAngle - radarCenterAngle;
-    
-    // Normalize angle difference to be between -PI and PI
-    if (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-    if (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
-    
-    // FIXED: Better logic for determining which side the dot is on
-    const radarAngleRange = endAngle - startAngle;
-    
+    // Check if dot is to the left or right of radar
     if (normalizedAngle < startAngle) {
       // Dot is to the left of radar
       borderHighlights.left = true;
     } else if (normalizedAngle > endAngle) {
       // Dot is to the right of radar
       borderHighlights.right = true;
-    } else if (geoDot.y > apexY) {
-      // Dot is below the radar center (behind)
-      borderHighlights.bottom = true;
     } else {
-      // Dot is above radar but outside angle bounds (shouldn't happen with current angles)
-      borderHighlights.bottom = true;
+      // Dot is within the angle bounds but may be above or below
+      // Check if dot is below the radar center (behind)
+      const dotRelativeToCenter = geoDot.y - apexY;
+      
+      // If the dot is below the center and outside the radius
+      if (dotRelativeToCenter > 0) {
+        borderHighlights.bottom = true;
+      } else {
+        // This shouldn't normally happen, but fallback to bottom
+        borderHighlights.bottom = true;
+      }
     }
     
     // Increase intensity when dot is outside radar
@@ -282,6 +275,9 @@ function updateGeoDotPosition() {
     // Fade out intensity when dot is inside radar
     borderHighlights.intensity = Math.max(0, borderHighlights.intensity - 0.05);
   }
+  
+  // Debug logging (you can remove this in production)
+  console.log(`Direction: ${geoDot.direction.toFixed(1)}°, Angle: ${(normalizedAngle * 180/Math.PI).toFixed(1)}°, Visible: ${geoDot.visibleInRadar}, Left: ${borderHighlights.left}, Right: ${borderHighlights.right}, Bottom: ${borderHighlights.bottom}`);
 }
 // =============================================
 
