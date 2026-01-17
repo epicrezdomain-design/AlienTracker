@@ -280,8 +280,8 @@ function initDeviceOrientation() {
               enableButton.disabled = true;
               enableButton.textContent = "INITIALIZING...";
               
-              // Start 1.5 second countdown before starting radar
-              startCountdown(1.5, () => {
+              // Start .8 second countdown before starting radar
+              startCountdown(.8, () => {
                 // Start the radar system
                 startRadarSystem();
               });
@@ -303,8 +303,8 @@ function initDeviceOrientation() {
         enableButton.disabled = true;
         enableButton.textContent = "INITIALIZING...";
         
-        // Start 1.5 second countdown before starting radar
-        startCountdown(1.5, () => {
+        // Start .8 second countdown before starting radar
+        startCountdown(.8, () => {
           // Start the radar system
           startRadarSystem();
         });
@@ -324,8 +324,8 @@ function initDeviceOrientation() {
       enableButton.disabled = true;
       enableButton.textContent = "INITIALIZING...";
       
-      // Start 1.5 second countdown before starting radar
-      startCountdown(1.5, () => {
+      // Start .8 second countdown before starting radar
+      startCountdown(.8, () => {
         // Start the radar system
         startRadarSystem();
       });
@@ -1023,4 +1023,5 @@ initDeviceOrientation();
 </script>
 </body>
 </html>
+
 
