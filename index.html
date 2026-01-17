@@ -73,13 +73,6 @@
     font-weight: bold;
     min-height: 30px;
   }
-  
-  .audio-warning {
-    font-size: 14px;
-    color: #ff6d6d;
-    margin-top: 10px;
-    display: none;
-  }
 </style>
 </head>
 <body>
@@ -92,7 +85,6 @@
     <p style="color: #32ff32; font-weight: bold;">HTTPS connection established</p>
     <button class="enable-button" id="enableButton">ENABLE COMPASS TRACKING</button>
     <div class="countdown" id="countdown"></div>
-    <div class="audio-warning" id="audioWarning">Audio may require manual play. Click anywhere after countdown.</div>
   </div>
 </div>
 
@@ -112,7 +104,6 @@ const permissionNotice = document.getElementById("permissionNotice");
 const blackOverlay = document.getElementById("blackOverlay");
 const enableButton = document.getElementById("enableButton");
 const countdownElement = document.getElementById("countdown");
-const audioWarning = document.getElementById("audioWarning");
 const backgroundAudio = document.getElementById('backgroundAudio');
 
 // --- 16:9 ---
@@ -197,39 +188,34 @@ canvas.addEventListener('click', (e) => {
 });
 // ============================================
 
-// ===== ADDED: Play background audio with better error handling =====
+// ===== ADDED: Play background audio IMMEDIATELY on user click =====
 function playBackgroundAudio() {
-  if (backgroundAudio.paused) {
-    backgroundAudio.volume = 0.4; // Set volume to 40%
-    
-    // First, ensure we have user interaction context
-    const playPromise = backgroundAudio.play();
-    
-    if (playPromise !== undefined) {
-      playPromise.then(() => {
-        console.log("Background audio started playing successfully");
-        audioWarning.style.display = 'none';
-      }).catch(error => {
-        console.log("Audio autoplay failed:", error);
-        
-        // Show warning to user
-        audioWarning.style.display = 'block';
-        audioWarning.textContent = "Audio requires manual play. Click anywhere to start audio.";
-        
-        // Set up click handler to try again
-        const tryPlayOnClick = () => {
-          backgroundAudio.play().then(() => {
-            console.log("Audio started after user click");
-            audioWarning.style.display = 'none';
-            document.removeEventListener('click', tryPlayOnClick);
-          }).catch(e => {
-            console.log("Still failed after click:", e);
-          });
-        };
-        
-        document.addEventListener('click', tryPlayOnClick, { once: true });
+  // Set volume before playing
+  backgroundAudio.volume = 0.4;
+  
+  // Try to play immediately
+  const playPromise = backgroundAudio.play();
+  
+  if (playPromise !== undefined) {
+    playPromise.then(() => {
+      console.log("Audio started successfully");
+    }).catch(error => {
+      console.log("Audio play failed, trying with user gesture context:", error);
+      
+      // Create a new audio element and try again
+      const newAudio = new Audio(backgroundAudio.src);
+      newAudio.volume = 0.4;
+      newAudio.loop = true;
+      
+      // Try playing the new audio element
+      newAudio.play().then(() => {
+        console.log("Audio started with new element");
+        // Replace the original audio with the working one
+        backgroundAudio.src = newAudio.src;
+      }).catch(e => {
+        console.log("Still failed:", e);
       });
-    }
+    });
   }
 }
 // ========================================
@@ -272,11 +258,17 @@ function startRadarSystem() {
 
 // ===== MODIFIED: DEVICE ORIENTATION HANDLER =====
 function initDeviceOrientation() {
+  // Set audio volume immediately
+  backgroundAudio.volume = 0.4;
+  
   if (window.DeviceOrientationEvent) {
     // Check for iOS 13+ permission
     if (typeof DeviceOrientationEvent.requestPermission === 'function') {
       // iOS 13+ devices - handle permission
       enableButton.addEventListener('click', () => {
+        // START AUDIO IMMEDIATELY on button click
+        playBackgroundAudio();
+        
         DeviceOrientationEvent.requestPermission()
           .then(permissionState => {
             if (permissionState === 'granted') {
@@ -292,12 +284,6 @@ function initDeviceOrientation() {
               startCountdown(2.5, () => {
                 // Start the radar system
                 startRadarSystem();
-                
-                // Play audio - NOW WITH BETTER TIMING
-                // Wait a tiny bit after the overlay disappears
-                setTimeout(() => {
-                  playBackgroundAudio();
-                }, 100);
               });
             }
           })
@@ -306,6 +292,9 @@ function initDeviceOrientation() {
     } else {
       // Non-iOS 13+ devices - just start on button click
       enableButton.addEventListener('click', () => {
+        // START AUDIO IMMEDIATELY on button click
+        playBackgroundAudio();
+        
         window.addEventListener('deviceorientation', handleOrientation);
         deviceOrientation.available = true;
         geoDot.active = true;
@@ -318,12 +307,6 @@ function initDeviceOrientation() {
         startCountdown(2.5, () => {
           // Start the radar system
           startRadarSystem();
-          
-          // Play audio - NOW WITH BETTER TIMING
-          // Wait a tiny bit after the overlay disappears
-          setTimeout(() => {
-            playBackgroundAudio();
-          }, 100);
         });
       });
     }
@@ -331,6 +314,9 @@ function initDeviceOrientation() {
     console.log("Device orientation not supported");
     // Fallback: Use mouse position to simulate direction
     enableButton.addEventListener('click', () => {
+      // START AUDIO IMMEDIATELY on button click
+      playBackgroundAudio();
+      
       setupMouseOrientation();
       geoDot.active = true;
       
@@ -342,12 +328,6 @@ function initDeviceOrientation() {
       startCountdown(2.5, () => {
         // Start the radar system
         startRadarSystem();
-        
-        // Play audio - NOW WITH BETTER TIMING
-        // Wait a tiny bit after the overlay disappears
-        setTimeout(() => {
-          playBackgroundAudio();
-        }, 100);
       });
     });
   }
