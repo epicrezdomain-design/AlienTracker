@@ -65,6 +65,14 @@
     justify-content: center;
     align-items: center;
   }
+  
+  .countdown {
+    font-size: 24px;
+    color: #32ff32;
+    margin-top: 20px;
+    font-weight: bold;
+    min-height: 30px;
+  }
 </style>
 </head>
 <body>
@@ -76,6 +84,7 @@
     <p>Ensure you are in a secure location before proceeding.</p>
     <p style="color: #32ff32; font-weight: bold;">HTTPS connection established</p>
     <button class="enable-button" id="enableButton">ENABLE COMPASS TRACKING</button>
+    <div class="countdown" id="countdown"></div>
   </div>
 </div>
 
@@ -94,6 +103,7 @@ const ctx = canvas.getContext("2d");
 const permissionNotice = document.getElementById("permissionNotice");
 const blackOverlay = document.getElementById("blackOverlay");
 const enableButton = document.getElementById("enableButton");
+const countdownElement = document.getElementById("countdown");
 const backgroundAudio = document.getElementById('backgroundAudio');
 
 // --- 16:9 ---
@@ -195,6 +205,26 @@ function playBackgroundAudio() {
 }
 // ========================================
 
+// ===== ADDED: Countdown timer =====
+function startCountdown(duration, callback) {
+  let timeLeft = duration;
+  countdownElement.textContent = `SYSTEM BOOT IN: ${timeLeft.toFixed(1)}s`;
+  
+  const countdownInterval = setInterval(() => {
+    timeLeft -= 0.1;
+    if (timeLeft <= 0) {
+      clearInterval(countdownInterval);
+      countdownElement.textContent = "SYSTEM ONLINE";
+      setTimeout(() => {
+        callback();
+      }, 300);
+    } else {
+      countdownElement.textContent = `SYSTEM BOOT IN: ${timeLeft.toFixed(1)}s`;
+    }
+  }, 100);
+}
+// ==================================
+
 // ===== ADDED: Start radar system =====
 function startRadarSystem() {
   // Hide the black overlay and permission notice
@@ -225,11 +255,18 @@ function initDeviceOrientation() {
               deviceOrientation.available = true;
               geoDot.active = true;
               
-              // Start the radar system
-              startRadarSystem();
+              // Disable the button during countdown
+              enableButton.disabled = true;
+              enableButton.textContent = "INITIALIZING...";
               
-              // Play audio
-              playBackgroundAudio();
+              // Start 2.5 second countdown before starting radar
+              startCountdown(2.5, () => {
+                // Start the radar system
+                startRadarSystem();
+                
+                // Play audio
+                playBackgroundAudio();
+              });
             }
           })
           .catch(console.error);
@@ -241,11 +278,18 @@ function initDeviceOrientation() {
         deviceOrientation.available = true;
         geoDot.active = true;
         
-        // Start the radar system
-        startRadarSystem();
+        // Disable the button during countdown
+        enableButton.disabled = true;
+        enableButton.textContent = "INITIALIZING...";
         
-        // Play audio
-        playBackgroundAudio();
+        // Start 2.5 second countdown before starting radar
+        startCountdown(2.5, () => {
+          // Start the radar system
+          startRadarSystem();
+          
+          // Play audio
+          playBackgroundAudio();
+        });
       });
     }
   } else {
@@ -255,11 +299,18 @@ function initDeviceOrientation() {
       setupMouseOrientation();
       geoDot.active = true;
       
-      // Start the radar system
-      startRadarSystem();
+      // Disable the button during countdown
+      enableButton.disabled = true;
+      enableButton.textContent = "INITIALIZING...";
       
-      // Play audio
-      playBackgroundAudio();
+      // Start 2.5 second countdown before starting radar
+      startCountdown(2.5, () => {
+        // Start the radar system
+        startRadarSystem();
+        
+        // Play audio
+        playBackgroundAudio();
+      });
     });
   }
 }
