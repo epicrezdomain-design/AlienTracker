@@ -224,23 +224,29 @@ function updateGeoDotPosition() {
   geoDot.x = cx + Math.cos(canvasAngle) * radius * geoDot.distance;
   geoDot.y = apexY + Math.sin(canvasAngle) * radius * geoDot.distance;
   
-  // ===== ADDED: Check if dot is within radar area =====
-  // Calculate radar boundary angles (in radians)
-  const startAngle = -Math.PI * 0.73;
-  const endAngle = -Math.PI * 0.27;
+  // ===== ADDED: SIMPLIFIED RADAR VISIBILITY CHECK =====
+  // Convert compass direction to a simple classification
+  const dir = geoDot.direction;
   
-  // Convert direction to angle relative to radar center (0° = right, positive clockwise)
-  const angleFromCenter = Math.atan2(geoDot.y - apexY, geoDot.x - cx);
+  // Define radar coverage area in compass degrees
+  // Radar faces forward (north), covering about 90° forward
+  const radarStart = 315; // 315° = NW
+  const radarEnd = 45;    // 45° = NE
   
-  // Normalize angle to be between -PI and PI
-  let normalizedAngle = angleFromCenter;
-  if (normalizedAngle > Math.PI) normalizedAngle -= 2 * Math.PI;
-  if (normalizedAngle < -Math.PI) normalizedAngle += 2 * Math.PI;
+  // Check if direction is within radar coverage
+  let inRadar = false;
   
-  // Check if angle is within radar bounds
-  geoDot.visibleInRadar = (normalizedAngle >= startAngle && normalizedAngle <= endAngle);
+  if (radarStart < radarEnd) {
+    // Normal case
+    inRadar = (dir >= radarStart || dir <= radarEnd);
+  } else {
+    // Wrap around case
+    inRadar = (dir >= radarStart || dir <= radarEnd);
+  }
   
-  // ===== FIXED: SIMPLER LOGIC FOR BORDER HIGHLIGHTS =====
+  geoDot.visibleInRadar = inRadar;
+  
+  // ===== FIXED: SIMPLE COMPASS-BASED BORDER LOGIC =====
   // Reset all highlights
   borderHighlights.left = false;
   borderHighlights.right = false;
@@ -248,31 +254,27 @@ function updateGeoDotPosition() {
   
   // Update highlight intensity based on dot position
   if (!geoDot.visibleInRadar) {
-    // Convert compass direction to a simple classification
-    // 0° = North, 90° = East, 180° = South, 270° = West
+    // Classify direction into sectors
+    // North: 0° (but this is in radar)
+    // East: 90°
+    // South: 180° 
+    // West: 270°
     
-    // First check if dot is to the left or right (based on angle)
-    if (normalizedAngle < startAngle) {
-      // Dot is to the left of radar
-      borderHighlights.left = true;
-    } else if (normalizedAngle > endAngle) {
-      // Dot is to the right of radar
-      borderHighlights.right = true;
-    } else {
-      // Dot is within angle range but check if it's "behind" (south)
-      // Check compass direction instead of position
-      const compassDir = geoDot.direction;
-      
-      // If direction is roughly south (behind), light up bottom
-      // South is around 180°, but use a range
-      const isBehind = (compassDir > 135 && compassDir < 225);
-      
-      if (isBehind) {
-        borderHighlights.bottom = true;
+    // Check which sector the direction is in
+    if ((dir > 45 && dir <= 135) || (dir >= 225 && dir < 315)) {
+      // Directions between 45-135° (E/SE) or 225-315° (W/NW)
+      // These are to the sides
+      if (dir >= 225 && dir < 315) {
+        // West side (225-315°)
+        borderHighlights.left = true;
       } else {
-        // For other angles that are outside but not left/right, default to bottom
-        borderHighlights.bottom = true;
+        // East side (45-135°)
+        borderHighlights.right = true;
       }
+    } else {
+      // Directions between 135-225° (S/SW/SE)
+      // This is behind (south)
+      borderHighlights.bottom = true;
     }
     
     // Increase intensity when dot is outside radar
