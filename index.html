@@ -18,27 +18,65 @@
   
   .permission-notice {
     position: absolute;
-    top: 20px;
+    top: 50%;
     left: 50%;
-    transform: translateX(-50%);
-    background: rgba(0, 20, 0, 0.8);
+    transform: translate(-50%, -50%);
+    background: rgba(0, 20, 0, 0.9);
     color: #6dff6d;
-    padding: 15px;
+    padding: 30px;
     border: 2px solid #6dff6d;
-    border-radius: 5px;
+    border-radius: 10px;
     font-family: monospace;
     text-align: center;
     z-index: 100;
-    display: none;
+    width: 80%;
+    max-width: 500px;
+    box-shadow: 0 0 30px rgba(109, 255, 109, 0.5);
+  }
+  
+  .enable-button {
+    background: #0b140b;
+    border: 2px solid #6dff6d;
+    color: #6dff6d;
+    padding: 15px 30px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-family: monospace;
+    font-size: 18px;
+    margin-top: 20px;
+    transition: all 0.3s;
+  }
+  
+  .enable-button:hover {
+    background: #6dff6d;
+    color: #0b140b;
+    box-shadow: 0 0 20px rgba(109, 255, 109, 0.8);
+  }
+  
+  #blackOverlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #000000;
+    z-index: 99;
+    display: flex;
+    justify-content: center;
+    align-items: center;
   }
 </style>
 </head>
 <body>
 
-<div class="permission-notice" id="permissionNotice">
-  <h3>⚠️ Device Orientation Required</h3>
-  <p>Allow compass access to see the geo-locked radar dot.</p>
-  <p>This requires HTTPS connection.</p>
+<div id="blackOverlay">
+  <div class="permission-notice" id="permissionNotice">
+    <h3>⚠️ ALIEN TRACKER INITIALIZATION ⚠️</h3>
+    <p>This device requires compass access to activate the geo-locked radar system.</p>
+    <p>Ensure you are in a secure location before proceeding.</p>
+    <p style="color: #32ff32; font-weight: bold;">HTTPS connection established</p>
+    <button class="enable-button" id="enableButton">ENABLE COMPASS TRACKING</button>
+  </div>
 </div>
 
 <canvas id="radar"></canvas>
@@ -54,6 +92,8 @@
 const canvas = document.getElementById("radar");
 const ctx = canvas.getContext("2d");
 const permissionNotice = document.getElementById("permissionNotice");
+const blackOverlay = document.getElementById("blackOverlay");
+const enableButton = document.getElementById("enableButton");
 const backgroundAudio = document.getElementById('backgroundAudio');
 
 // --- 16:9 ---
@@ -155,50 +195,72 @@ function playBackgroundAudio() {
 }
 // ========================================
 
-// ===== ADDED: DEVICE ORIENTATION HANDLER =====
+// ===== ADDED: Start radar system =====
+function startRadarSystem() {
+  // Hide the black overlay and permission notice
+  blackOverlay.style.display = 'none';
+  
+  // Start the radar animation
+  startupPhase = 1; // Start with line appears
+  startupTimer = 0;
+  startupProgress = 0;
+  startupLineHeight = 2;
+  
+  // Start the drawing loop
+  drawEverything();
+}
+// ======================================
+
+// ===== MODIFIED: DEVICE ORIENTATION HANDLER =====
 function initDeviceOrientation() {
   if (window.DeviceOrientationEvent) {
     // Check for iOS 13+ permission
     if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-      permissionNotice.style.display = 'block';
-      
-      // Try to request permission on user interaction
-      const requestPermission = () => {
+      // iOS 13+ devices - handle permission
+      enableButton.addEventListener('click', () => {
         DeviceOrientationEvent.requestPermission()
           .then(permissionState => {
             if (permissionState === 'granted') {
               window.addEventListener('deviceorientation', handleOrientation);
               deviceOrientation.available = true;
               geoDot.active = true;
-              permissionNotice.style.display = 'none';
               
-              // ===== ADDED: Play audio when compass is enabled =====
+              // Start the radar system
+              startRadarSystem();
+              
+              // Play audio
               playBackgroundAudio();
             }
           })
           .catch(console.error);
-      };
-      
-      // Request on any click
-      document.addEventListener('click', requestPermission, { once: true });
-      permissionNotice.innerHTML += '<p><button onclick="requestPermission()">Click to Enable Compass</button></p>';
-      window.requestPermission = requestPermission;
+      });
     } else {
-      // Non-iOS 13+ devices
-      window.addEventListener('deviceorientation', handleOrientation);
-      deviceOrientation.available = true;
-      geoDot.active = true;
-      
-      // ===== ADDED: Play audio when compass is available =====
-      playBackgroundAudio();
+      // Non-iOS 13+ devices - just start on button click
+      enableButton.addEventListener('click', () => {
+        window.addEventListener('deviceorientation', handleOrientation);
+        deviceOrientation.available = true;
+        geoDot.active = true;
+        
+        // Start the radar system
+        startRadarSystem();
+        
+        // Play audio
+        playBackgroundAudio();
+      });
     }
   } else {
     console.log("Device orientation not supported");
     // Fallback: Use mouse position to simulate direction
-    setupMouseOrientation();
-    
-    // ===== ADDED: Play audio for desktop fallback =====
-    playBackgroundAudio();
+    enableButton.addEventListener('click', () => {
+      setupMouseOrientation();
+      geoDot.active = true;
+      
+      // Start the radar system
+      startRadarSystem();
+      
+      // Play audio
+      playBackgroundAudio();
+    });
   }
 }
 
@@ -241,11 +303,6 @@ function setupMouseOrientation() {
     updateGeoDotPosition();
     geoDot.active = true;
   });
-  
-  // For desktop fallback, also start the audio when user interacts
-  document.addEventListener('click', () => {
-    playBackgroundAudio();
-  }, { once: true });
 }
 
 function updateGeoDotPosition() {
@@ -893,10 +950,6 @@ function drawRadarUI() {
 // ===== ADDED: Initialize device orientation =====
 initDeviceOrientation();
 // ================================================
-
-// ===== ADDED: Start animation =====
-drawEverything();
-// ===================================
 
 </script>
 </body>
