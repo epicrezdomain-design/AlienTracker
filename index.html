@@ -43,11 +43,18 @@
 
 <canvas id="radar"></canvas>
 
+<!-- Audio Element - No visible controls -->
+<audio id="backgroundAudio" loop preload="auto">
+  <source src="https://github.com/epicrezdomain-design/AlienTracker/raw/main/TrackerAmbient.mp3" type="audio/mp3">
+  Your browser does not support the audio element.
+</audio>
+
 <script>
 
 const canvas = document.getElementById("radar");
 const ctx = canvas.getContext("2d");
 const permissionNotice = document.getElementById("permissionNotice");
+const backgroundAudio = document.getElementById('backgroundAudio');
 
 // --- 16:9 ---
 canvas.width = 1280;
@@ -131,6 +138,23 @@ canvas.addEventListener('click', (e) => {
 });
 // ============================================
 
+// ===== ADDED: Play background audio =====
+function playBackgroundAudio() {
+  if (backgroundAudio.paused) {
+    backgroundAudio.volume = 0.4; // Set volume to 40%
+    backgroundAudio.play().then(() => {
+      console.log("Background audio started playing");
+    }).catch(error => {
+      console.log("Audio play failed:", error);
+      // Try again on user interaction
+      document.addEventListener('click', () => {
+        backgroundAudio.play().catch(e => console.log("Still failed:", e));
+      }, { once: true });
+    });
+  }
+}
+// ========================================
+
 // ===== ADDED: DEVICE ORIENTATION HANDLER =====
 function initDeviceOrientation() {
   if (window.DeviceOrientationEvent) {
@@ -147,6 +171,9 @@ function initDeviceOrientation() {
               deviceOrientation.available = true;
               geoDot.active = true;
               permissionNotice.style.display = 'none';
+              
+              // ===== ADDED: Play audio when compass is enabled =====
+              playBackgroundAudio();
             }
           })
           .catch(console.error);
@@ -161,11 +188,17 @@ function initDeviceOrientation() {
       window.addEventListener('deviceorientation', handleOrientation);
       deviceOrientation.available = true;
       geoDot.active = true;
+      
+      // ===== ADDED: Play audio when compass is available =====
+      playBackgroundAudio();
     }
   } else {
     console.log("Device orientation not supported");
     // Fallback: Use mouse position to simulate direction
     setupMouseOrientation();
+    
+    // ===== ADDED: Play audio for desktop fallback =====
+    playBackgroundAudio();
   }
 }
 
@@ -208,6 +241,11 @@ function setupMouseOrientation() {
     updateGeoDotPosition();
     geoDot.active = true;
   });
+  
+  // For desktop fallback, also start the audio when user interacts
+  document.addEventListener('click', () => {
+    playBackgroundAudio();
+  }, { once: true });
 }
 
 function updateGeoDotPosition() {
