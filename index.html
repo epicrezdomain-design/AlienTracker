@@ -259,15 +259,20 @@ function updateGeoDotPosition() {
     if (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
     if (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
     
-    // Determine which border to highlight based on angle
-    if (angleDiff < -0.4) {
+    // FIXED: Better logic for determining which side the dot is on
+    const radarAngleRange = endAngle - startAngle;
+    
+    if (normalizedAngle < startAngle) {
       // Dot is to the left of radar
       borderHighlights.left = true;
-    } else if (angleDiff > 0.4) {
+    } else if (normalizedAngle > endAngle) {
       // Dot is to the right of radar
       borderHighlights.right = true;
+    } else if (geoDot.y > apexY) {
+      // Dot is below the radar center (behind)
+      borderHighlights.bottom = true;
     } else {
-      // Dot is behind (below) the radar
+      // Dot is above radar but outside angle bounds (shouldn't happen with current angles)
       borderHighlights.bottom = true;
     }
     
@@ -474,13 +479,28 @@ function drawRadarUI() {
     }
     
     if (isHighlighted && highlightIntensity > 0) {
+      // FIXED: Use green color progression instead of pink
+      // Interpolate from light green (#6dff6d) to solid green (#32ff32)
+      const baseR = 109; // #6dff6d
+      const baseG = 255;
+      const baseB = 109;
+      
+      const targetR = 50;  // #32ff32
+      const targetG = 255;
+      const targetB = 50;
+      
+      // Interpolate based on intensity
+      const r = Math.round(baseR + (targetR - baseR) * highlightIntensity);
+      const g = Math.round(baseG + (targetG - baseG) * highlightIntensity);
+      const b = Math.round(baseB + (targetB - baseB) * highlightIntensity);
+      
       // Draw highlighted version
       ctx.lineWidth = lineWidth + (10 * highlightIntensity);
-      ctx.strokeStyle = `rgba(255, ${255 - 100 * highlightIntensity}, ${109 + 146 * highlightIntensity}, ${0.3 + 0.7 * highlightIntensity})`;
+      ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${0.3 + 0.7 * highlightIntensity})`;
       
       // Draw glow effect
       ctx.shadowBlur = 20 * highlightIntensity;
-      ctx.shadowColor = `rgba(109, 255, 109, ${0.7 * highlightIntensity})`;
+      ctx.shadowColor = `rgba(${r}, ${g}, ${b}, ${0.7 * highlightIntensity})`;
     } else {
       // Draw normal version
       ctx.lineWidth = lineWidth;
