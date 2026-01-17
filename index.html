@@ -89,7 +89,16 @@ let geoDot = {
   direction: 0, // 0° = North, 90° = East, 180° = South, 270° = West
   distance: 0.4, // 0-1, distance from center (0.4 = 40% from center)
   pulse: 0,
-  pulseSpeed: 0.05
+  pulseSpeed: 0.05,
+  visibleInRadar: true // Track if dot is within radar area
+};
+
+// ===== ADDED: BORDER HIGHLIGHT STATE =====
+let borderHighlights = {
+  left: false,
+  right: false,
+  bottom: false,
+  intensity: 0
 };
 
 let deviceOrientation = {
@@ -167,12 +176,9 @@ function handleOrientation(event) {
     deviceOrientation.gamma = event.gamma; // Left-right tilt
     
     // Update geo dot direction based on compass
-    // 0° = North, but canvas coordinates: 0° = right, 90° = down
-    // So we need to convert: compass 0° (North) = canvas -90°
-    // CHANGED: Removed the 360- inversion to make dot move opposite way
-    geoDot.direction = deviceOrientation.alpha; // Changed from (360 - deviceOrientation.alpha) % 360
+    geoDot.direction = deviceOrientation.alpha;
     
-    // Update geo dot position
+    // Update geo dot position and visibility
     updateGeoDotPosition();
   }
 }
@@ -217,6 +223,60 @@ function updateGeoDotPosition() {
   // Calculate position based on direction and distance
   geoDot.x = cx + Math.cos(canvasAngle) * radius * geoDot.distance;
   geoDot.y = apexY + Math.sin(canvasAngle) * radius * geoDot.distance;
+  
+  // ===== ADDED: Check if dot is within radar area =====
+  // Calculate radar boundary angles (in radians)
+  const startAngle = -Math.PI * 0.73;
+  const endAngle = -Math.PI * 0.27;
+  
+  // Convert direction to angle relative to radar center (0° = right, positive clockwise)
+  const angleFromCenter = Math.atan2(geoDot.y - apexY, geoDot.x - cx);
+  
+  // Normalize angle to be between -PI and PI
+  let normalizedAngle = angleFromCenter;
+  if (normalizedAngle > Math.PI) normalizedAngle -= 2 * Math.PI;
+  if (normalizedAngle < -Math.PI) normalizedAngle += 2 * Math.PI;
+  
+  // Check if angle is within radar bounds
+  geoDot.visibleInRadar = (normalizedAngle >= startAngle && normalizedAngle <= endAngle);
+  
+  // ===== ADDED: Determine which border to highlight =====
+  // Reset all highlights
+  borderHighlights.left = false;
+  borderHighlights.right = false;
+  borderHighlights.bottom = false;
+  
+  // Update highlight intensity based on dot position
+  if (!geoDot.visibleInRadar) {
+    // Determine which side the dot is on relative to radar
+    // Calculate relative angle to center of radar (which points upward)
+    const radarCenterAngle = (startAngle + endAngle) / 2; // Center of radar arc
+    
+    // Calculate angle difference
+    let angleDiff = normalizedAngle - radarCenterAngle;
+    
+    // Normalize angle difference to be between -PI and PI
+    if (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+    if (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+    
+    // Determine which border to highlight based on angle
+    if (angleDiff < -0.4) {
+      // Dot is to the left of radar
+      borderHighlights.left = true;
+    } else if (angleDiff > 0.4) {
+      // Dot is to the right of radar
+      borderHighlights.right = true;
+    } else {
+      // Dot is behind (below) the radar
+      borderHighlights.bottom = true;
+    }
+    
+    // Increase intensity when dot is outside radar
+    borderHighlights.intensity = Math.min(1, borderHighlights.intensity + 0.1);
+  } else {
+    // Fade out intensity when dot is inside radar
+    borderHighlights.intensity = Math.max(0, borderHighlights.intensity - 0.05);
+  }
 }
 // =============================================
 
@@ -388,13 +448,47 @@ function drawRadarUI() {
     [137, 225],   // Bottom Right,Bottom left
   ];
 
-  ctx.lineWidth = lineWidth;
-  ctx.strokeStyle = "rgba(109, 255, 109, 0.3)";
-  ctx.lineCap = 'butt';
-
-  visibleSegments.forEach(([startDeg, endDeg]) => {
+  // ===== MODIFIED: Draw border segments with highlight effect =====
+  visibleSegments.forEach(([startDeg, endDeg], index) => {
     const startRad = ((startDeg - 90) * Math.PI / 180);
     const endRad = ((endDeg - 90) * Math.PI / 180);
+    
+    // Determine if this segment should be highlighted
+    let isHighlighted = false;
+    let highlightIntensity = 0;
+    
+    // Left segment (index 0: 232-315 degrees)
+    if (index === 0 && borderHighlights.left) {
+      isHighlighted = true;
+      highlightIntensity = borderHighlights.intensity;
+    }
+    // Right segment (index 1: 45-130 degrees)
+    else if (index === 1 && borderHighlights.right) {
+      isHighlighted = true;
+      highlightIntensity = borderHighlights.intensity;
+    }
+    // Bottom segment (index 2: 137-225 degrees)
+    else if (index === 2 && borderHighlights.bottom) {
+      isHighlighted = true;
+      highlightIntensity = borderHighlights.intensity;
+    }
+    
+    if (isHighlighted && highlightIntensity > 0) {
+      // Draw highlighted version
+      ctx.lineWidth = lineWidth + (10 * highlightIntensity);
+      ctx.strokeStyle = `rgba(255, ${255 - 100 * highlightIntensity}, ${109 + 146 * highlightIntensity}, ${0.3 + 0.7 * highlightIntensity})`;
+      
+      // Draw glow effect
+      ctx.shadowBlur = 20 * highlightIntensity;
+      ctx.shadowColor = `rgba(109, 255, 109, ${0.7 * highlightIntensity})`;
+    } else {
+      // Draw normal version
+      ctx.lineWidth = lineWidth;
+      ctx.strokeStyle = "rgba(109, 255, 109, 0.3)";
+      ctx.shadowBlur = 0;
+    }
+    
+    ctx.lineCap = 'butt';
     
     if (endDeg < startDeg) {
       ctx.beginPath();
@@ -409,6 +503,9 @@ function drawRadarUI() {
       ctx.arc(circleX, circleY, circleRadius, startRad, endRad);
       ctx.stroke();
     }
+    
+    // Reset shadow for next drawings
+    ctx.shadowBlur = 0;
   });
 
   // === END GAPPED CIRCLE ===
@@ -526,20 +623,18 @@ function drawRadarUI() {
     ctx.fillText(t, cx + radius * 0.55, apexY + 35 + i * 36);
   });
 
-  // ===== ADDED: DRAW GEO-LOCKED DOT (NON-PULSING) =====
-  if (geoDot.active) {
-    // REMOVED: Pulse animation code
-    
+  // ===== MODIFIED: DRAW GEO-LOCKED DOT ONLY IF WITHIN RADAR AREA =====
+  if (geoDot.active && geoDot.visibleInRadar) {
     // Draw glow (static, not pulsing)
     ctx.fillStyle = geoDot.glowColor;
     ctx.beginPath();
-    ctx.arc(geoDot.x, geoDot.y, geoDot.radius * 2, 0, Math.PI * 2); // Removed pulseScale
+    ctx.arc(geoDot.x, geoDot.y, geoDot.radius * 2, 0, Math.PI * 2);
     ctx.fill();
     
     // Draw main dot (static, not pulsing)
     ctx.fillStyle = geoDot.color;
     ctx.beginPath();
-    ctx.arc(geoDot.x, geoDot.y, geoDot.radius, 0, Math.PI * 2); // Removed pulseScale
+    ctx.arc(geoDot.x, geoDot.y, geoDot.radius, 0, Math.PI * 2);
     ctx.fill();
     
     // Draw direction indicator line
@@ -548,22 +643,12 @@ function drawRadarUI() {
     const endX = geoDot.x + Math.cos(lineAngle) * lineLength;
     const endY = geoDot.y + Math.sin(lineAngle) * lineLength;
     
-    ctx.strokeStyle = "#32ff32"; // Changed to green to match
+    ctx.strokeStyle = "#32ff32";
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(geoDot.x, geoDot.y);
     ctx.lineTo(endX, endY);
     ctx.stroke();
-    
-    // REMOVED: N/S/E/W indicator text
-    // ctx.fillStyle = "#32ff32"; // Changed to green to match
-    // ctx.font = "14px monospace";
-    // ctx.textAlign = "center";
-    // ctx.textBaseline = "middle";
-    
-    // Show compass direction - REMOVED
-    // const directionText = getDirectionText(geoDot.direction);
-    // ctx.fillText(`${directionText} (${Math.round(geoDot.direction)}°)`, geoDot.x, geoDot.y - 25);
   }
   // =====================================
 
@@ -746,9 +831,6 @@ function drawRadarUI() {
   }
 }
 
-// ===== ADDED: Helper function for direction text =====
-// REMOVED: getDirectionText function is no longer needed since we removed the text display
-
 // ===== ADDED: Initialize device orientation =====
 initDeviceOrientation();
 // ================================================
@@ -760,5 +842,3 @@ drawEverything();
 </script>
 </body>
 </html>
-
-
