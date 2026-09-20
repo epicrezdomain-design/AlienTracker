@@ -10,11 +10,38 @@
     height: 100%;
   }
 
-  canvas {
-    display: block;
+  :root {
+    --bloom-tight:  0.55;   /* soft skirt around bright lines (0 = off) */
+    --bloom-wide:   0.30;   /* faint wide glow (0 = off) */
+  }
+
+  .crt {
+    position: relative;
+    width: 1280px;
+    height: 720px;
     margin: auto;
+    overflow: hidden;
+    isolation: isolate;
+  }
+
+  canvas#radar {
+    display: block;
     background: radial-gradient(circle at 50% 70%, #0f2a12, #081008 100%);
   }
+
+  /* Bloom layers: blurred copies of the radar, layered over it with 'lighten' blend */
+  .bloom, .label-layer {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+  .bloom { mix-blend-mode: lighten; }
+  .bloom-tight { filter: blur(6px);  opacity: var(--bloom-tight); }
+  .bloom-wide  { filter: blur(20px) brightness(1.15); opacity: var(--bloom-wide); }
+
+  /* Label layer sits ABOVE the bloom, so text is never blurred */
+  .label-layer { z-index: 5; }
 
   .permission-notice {
     position: absolute;
@@ -88,7 +115,12 @@
   </div>
 </div>
 
-<canvas id="radar"></canvas>
+<div class="crt">
+  <canvas id="radar"></canvas>
+  <canvas id="bloomTight" class="bloom bloom-tight" width="1280" height="720"></canvas>
+  <canvas id="bloomWide"  class="bloom bloom-wide"  width="1280" height="720"></canvas>
+  <canvas id="labelLayer" class="label-layer" width="1280" height="720"></canvas>
+</div>
 
 <audio id="backgroundAudio" loop preload="auto">
   <source src="https://github.com/epicrezdomain-design/AlienTracker/raw/main/TrackerAmbient.mp3" type="audio/mp3">
@@ -104,40 +136,46 @@ const enableButton = document.getElementById("enableButton");
 const countdownElement = document.getElementById("countdown");
 const backgroundAudio = document.getElementById('backgroundAudio');
 
-const VERSION_LABEL = "V.07";
+const VERSION_LABEL = "V.08";
 
 canvas.width = 1280;
 canvas.height = 720;
+
+// ===== BLOOM LAYERS =====
+const bloomTightCanvas = document.getElementById('bloomTight');
+const bloomWideCanvas  = document.getElementById('bloomWide');
+const bloomTightCtx = bloomTightCanvas.getContext('2d');
+const bloomWideCtx  = bloomWideCanvas.getContext('2d');
+
+// Label layer: text drawn here appears ON TOP of the bloom, so it stays crisp.
+const labelLayerCanvas = document.getElementById('labelLayer');
+const labelLayerCtx = labelLayerCanvas.getContext('2d');
 
 const greenDots = [];
 
 let compassDirection = 0;
 
 // ===== GEO DOT STEPPED APPROACH =====
-// Each cycle builds a fresh, slightly randomized path:
-//   approach (getting closer)  ->  linger at closest for ~7 bleeps  ->  leave (getting further)
+const APPROACH_DISTANCES = [0.95, 0.75, 0.55, 0.35];
+const APPROACH_DELAYS_MS = [3000, 2000, 1500, 1000];
+const CLOSEST_DISTANCE   = 0.15;
+const LEAVE_DISTANCES    = [0.35, 0.55, 0.75, 0.95];
+const LEAVE_DELAYS_MS    = [1500, 2000, 3000, 1500];
 
-// Base path. Randomness is added around these each cycle.
-const APPROACH_DISTANCES = [0.95, 0.75, 0.55, 0.35];   // dots on the way in
-const APPROACH_DELAYS_MS = [3000, 2000, 1500, 1000];   // gap after each of those dots
-const CLOSEST_DISTANCE   = 0.15;                       // where the alien stops
-const LEAVE_DISTANCES    = [0.35, 0.55, 0.75, 0.95];   // dots on the way out
-const LEAVE_DELAYS_MS    = [1500, 2000, 3000, 1500];   // gap after each of those dots
+const DISTANCE_JITTER  = 0.06;
+const MIN_DISTANCE_GAP = 0.08;
+const DELAY_JITTER     = 0.25;
+const MIN_DELAY_MS     = 1000;
 
-const DISTANCE_JITTER  = 0.06;   // +/- random wobble on each distance (0.06 = 6% of radar)
-const MIN_DISTANCE_GAP = 0.08;   // dots always keep moving at least this much (so it never stalls or backtracks)
-const DELAY_JITTER     = 0.25;   // +/- 25% random on the gaps
-const MIN_DELAY_MS     = 1000;   // never go below this (dot needs ~900ms to fully fade)
-
-const CLOSEST_BLEEPS          = 7;      // how many bleeps at the closest point...
-const CLOSEST_BLEEPS_VARIANCE = 1;      // ...give or take (7 => 6 to 8)
-const CLOSEST_DELAY_MIN_MS    = 1000;   // gap between bleeps while lingering
+const CLOSEST_BLEEPS          = 7;
+const CLOSEST_BLEEPS_VARIANCE = 1;
+const CLOSEST_DELAY_MIN_MS    = 1000;
 const CLOSEST_DELAY_MAX_MS    = 1400;
-const CLOSEST_WOBBLE          = 0.01;   // tiny drift so the lingering dots aren't pixel-identical
+const CLOSEST_WOBBLE          = 0.01;
 
 const INITIAL_DELAY_MS = 10000;
-const STEP_HOLD_MS     = 200;    // dot stays fully bright this long when it appears at each step
-const STEP_FADE_MS     = 700;    // then fades out over this long (HOLD + FADE must be < shortest step delay)
+const STEP_HOLD_MS     = 200;
+const STEP_FADE_MS     = 700;
 const CYCLE_PAUSE_MS   = 4000;
 
 function rand(min, max) { return min + Math.random() * (max - min); }
@@ -147,10 +185,8 @@ function jitterDelay(ms) {
   return Math.max(MIN_DELAY_MS, Math.round(ms * (1 + rand(-DELAY_JITTER, DELAY_JITTER))));
 }
 
-// Randomize a list of distances but keep them strictly moving in one direction.
 function jitterDistances(base, closer) {
   const out = base.map(d => clamp(d + rand(-DISTANCE_JITTER, DISTANCE_JITTER), 0.22, 0.98));
-  // sort so it only ever goes one way, then enforce a minimum gap between dots
   out.sort((x, y) => closer ? y - x : x - y);
   for (let i = 1; i < out.length; i++) {
     out[i] = closer ? Math.min(out[i], out[i - 1] - MIN_DISTANCE_GAP)
@@ -159,15 +195,11 @@ function jitterDistances(base, closer) {
   return out.map(d => clamp(d, 0.22, 0.98));
 }
 
-// Returns an array of { dist, delay } - one entry per bleep for this cycle.
 function buildGeoSequence() {
   const seq = [];
-
-  // 1) Approach
   const inD = jitterDistances(APPROACH_DISTANCES, true);
   inD.forEach((d, i) => seq.push({ dist: d, delay: jitterDelay(APPROACH_DELAYS_MS[i]) }));
 
-  // 2) Linger at closest point for ~7 bleeps
   const bleeps = CLOSEST_BLEEPS + Math.floor(rand(-CLOSEST_BLEEPS_VARIANCE, CLOSEST_BLEEPS_VARIANCE + 1));
   for (let i = 0; i < bleeps; i++) {
     seq.push({
@@ -176,7 +208,6 @@ function buildGeoSequence() {
     });
   }
 
-  // 3) Leave
   const outD = jitterDistances(LEAVE_DISTANCES, false);
   outD.forEach((d, i) => seq.push({ dist: d, delay: jitterDelay(LEAVE_DELAYS_MS[i]) }));
 
@@ -184,8 +215,7 @@ function buildGeoSequence() {
 }
 
 let geoSequence = buildGeoSequence();
-
-let geoPhase = 'delay';        // 'delay' | 'stepping' | 'pause'
+let geoPhase = 'delay';
 let geoPhaseStart = 0;
 let geoFadeStart = 0;
 let geoStepIndex = 0;
@@ -195,7 +225,7 @@ let geoOpacity = 0;
 let geoFrozenDirection = 0;
 
 function startGeoCycle(now) {
-  geoSequence = buildGeoSequence();   // fresh random path every cycle
+  geoSequence = buildGeoSequence();
   geoPhase = 'delay';
   geoPhaseStart = now;
   geoStepIndex = 0;
@@ -216,9 +246,7 @@ function updateGeoDot(now) {
       geoOpacity = 1;
       geoFrozenDirection = compassDirection;
     }
-
   } else if (geoPhase === 'stepping') {
-    // Every step: dot appears bright, holds briefly, then fades out fast.
     const sinceStep = now - geoStepStart;
     if (sinceStep <= STEP_HOLD_MS) {
       geoOpacity = 1;
@@ -232,14 +260,13 @@ function updateGeoDot(now) {
       geoStepStart = now;
       if (geoStepIndex < geoSequence.length) {
         geoDistance = geoSequence[geoStepIndex].dist;
-        geoOpacity = 1;                // new dot pops in at its new spot
+        geoOpacity = 1;
       } else {
         geoPhase = 'pause';
         geoPhaseStart = now;
         geoOpacity = 0;
       }
     }
-
   } else if (geoPhase === 'pause') {
     geoOpacity = 0;
     if (now - geoPhaseStart >= CYCLE_PAUSE_MS) {
@@ -248,25 +275,11 @@ function updateGeoDot(now) {
   }
 }
 
-// ===== BORDER HIGHLIGHT =====
 let borderHighlights = { left: false, right: false, bottom: false, intensity: 0 };
 let deviceOrientation = { available: false, alpha: 0, beta: 0, gamma: 0 };
 
-// ===== ROLL EFFECT =====
-let isRolling = false;
-let rollOffset = 0;
-let rollSpeed = 30;
-let rollCount = 0;
-let maxRolls = 5;
-let lastRollTime = 0;
-
-// ===== WARP EFFECT =====
-let lastWarpTime = 0;
-let warpActive = false;
-let warpProgress = 0;
-let warpX = 0, warpY = 0, warpStrength = 0, warpDuration = 0;
-let warpsThisCycle = 0;
-let warpsDone = 0;
+let isRolling = false, rollOffset = 0, rollSpeed = 30, rollCount = 0, maxRolls = 5, lastRollTime = 0;
+let lastWarpTime = 0, warpActive = false, warpProgress = 0, warpX = 0, warpY = 0, warpStrength = 0, warpDuration = 0, warpsThisCycle = 0, warpsDone = 0;
 
 const tempCanvas = document.createElement('canvas');
 tempCanvas.width = canvas.width;
@@ -404,6 +417,50 @@ function isInRadarCone(dir) {
   return (dir >= 315 || dir <= 45);
 }
 
+// Draw the text labels ON TOP of the bloom
+function drawLabels() {
+  const lcx = canvas.width / 2;
+  const lApexY = canvas.height * 0.72;
+  const lRadius = canvas.height * 0.62;
+
+  labelLayerCtx.clearRect(0, 0, labelLayerCanvas.width, labelLayerCanvas.height);
+
+  // "1" and "2"
+  labelLayerCtx.fillStyle = "#0b140b";
+  labelLayerCtx.font = "28px monospace";
+  labelLayerCtx.textAlign = "center";
+  labelLayerCtx.textBaseline = "middle";
+  labelLayerCtx.fillText("1", lcx - lRadius * 0.63 + 50, lApexY + 44);
+  labelLayerCtx.fillText("2", lcx - lRadius * 0.63 + 24, lApexY + 104);
+
+  // Version label
+  labelLayerCtx.fillStyle = "rgba(109, 255, 109, 0.85)";
+  labelLayerCtx.font = "14px monospace";
+  labelLayerCtx.textAlign = "left";
+  labelLayerCtx.textBaseline = "middle";
+  labelLayerCtx.fillText(VERSION_LABEL, lcx - lRadius * 0.63, lApexY + 140);
+
+  // ATT / SUS / DEC
+  labelLayerCtx.fillStyle = "#6dff6d";
+  labelLayerCtx.font = "Bold 26px monospace";
+  labelLayerCtx.textAlign = "left";
+  labelLayerCtx.textBaseline = "alphabetic";
+  ["ATT", "SUS", "DEC"].forEach((t, i) => {
+    labelLayerCtx.fillText(t, lcx + lRadius * 0.55, lApexY + 35 + i * 36);
+  });
+}
+
+// Update the two bloom canvases from the radar canvas
+function updateBloom() {
+  // tight bloom (small blur via CSS)
+  bloomTightCtx.clearRect(0, 0, bloomTightCanvas.width, bloomTightCanvas.height);
+  bloomTightCtx.drawImage(canvas, 0, 0);
+
+  // wide bloom (bigger blur via CSS) — a scaled-down copy is fine, the CSS blur hides it
+  bloomWideCtx.clearRect(0, 0, bloomWideCanvas.width, bloomWideCanvas.height);
+  bloomWideCtx.drawImage(canvas, 0, 0);
+}
+
 function drawEverything() {
   const now = Date.now();
   if (!lastRollTime) lastRollTime = now + 5000;
@@ -414,6 +471,8 @@ function drawEverything() {
     rollSpeed = 30;
   }
   drawRadarUI();
+  updateBloom();
+  drawLabels();
   requestAnimationFrame(drawEverything);
 }
 
@@ -445,7 +504,7 @@ function drawRadarUI() {
     }
   }
 
-  // Vertical jitter (skip during fade so it doesn't smear the fading dot)
+  // Vertical jitter
   const dotIsFading = (geoPhase === 'stepping' && geoOpacity < 1);
   if (!dotIsFading && Math.random() > 0.97) {
     const jitterAmount = Math.random() * 4 - 2;
@@ -580,35 +639,12 @@ function drawRadarUI() {
     }
   }
 
-  // Left buttons
+  // Left buttons — drawn on the radar canvas so they bloom
   ctx.fillStyle = "#32ff32";
   ctx.fillRect(cx - radius * 0.65, apexY + 20, 70, 40);
   ctx.fillRect(cx - radius * 0.65, apexY + 80, 48, 40);
 
-  ctx.fillStyle = "#0b140b";
-  ctx.font = "28px monospace";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("1", cx - radius * 0.63 + 50, apexY + 44);
-  ctx.fillText("2", cx - radius * 0.63 + 24, apexY + 104);
-
-  // Version label under the "2" button
-  ctx.fillStyle = "rgba(109, 255, 109, 0.75)";
-  ctx.font = "14px monospace";
-  ctx.textAlign = "left";
-  ctx.textBaseline = "middle";
-  ctx.fillText(VERSION_LABEL, cx - radius * 0.63, apexY + 140);
-
-  // Right labels
-  ctx.fillStyle = green;
-  ctx.font = "Bold 26px monospace";
-  ctx.textAlign = "left";
-  ["ATT", "SUS", "DEC"].forEach((t, i) => {
-    ctx.fillText(t, cx + radius * 0.55, apexY + 35 + i * 36);
-  });
-
   // ===== GEO DOT =====
-  // Drawn with globalAlpha so the dot, glow and line all fade together.
   if (geoOpacity > 0.003 && isInRadarCone(geoFrozenDirection)) {
     const dotRadius = 8;
     const r = radius * geoDistance;
@@ -619,17 +655,14 @@ function drawRadarUI() {
     ctx.save();
     ctx.globalAlpha = Math.max(0, Math.min(1, geoOpacity));
 
-    // Soft glow
     ctx.shadowBlur = 18;
     ctx.shadowColor = "rgb(50, 255, 50)";
 
-    // Core dot
     ctx.fillStyle = "rgb(50, 255, 50)";
     ctx.beginPath();
     ctx.arc(dotX, dotY, dotRadius, 0, Math.PI * 2);
     ctx.fill();
 
-    // Direction line
     const lineLength = 20;
     const endX = dotX + Math.cos(canvasAngle) * lineLength;
     const endY = dotY + Math.sin(canvasAngle) * lineLength;
