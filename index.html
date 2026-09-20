@@ -793,4 +793,20 @@ function drawRadarUI() {
     ctx.strokeStyle = rollCount < 4 ? 'rgba(255, 50, 50, 0.6)' : 'rgba(120, 255, 120, 0.4)';
     ctx.lineWidth = 2;
     for (let i = 0; i < 3; i++) {
-      const lineY = (rollOffset + i * 50) %
+      const lineY = (rollOffset + i * 50) % canvas.height;
+      ctx.beginPath();
+      ctx.moveTo(0, lineY);
+      ctx.lineTo(canvas.width, lineY);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    ctx.fillRect(0, rollOffset - 2, canvas.width, 4);
+  }
+}
+
+initDeviceOrientation();
+
+</script>
+</body>
+</html>
