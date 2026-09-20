@@ -109,27 +109,24 @@ canvas.height = 720;
 
 const greenDots = [];
 
-// Compass direction
 let compassDirection = 0;
 
 // ===== GEO DOT ANIMATION =====
-// Phases: 'delay' -> 'visible' (1s hold) -> 'fade' (fixed) -> pause -> repeat
-const GEO_DELAY_MS   = 10000; // wait before first appear
-const GEO_VISIBLE_MS = 1000;  // hold at full opacity for 1 second
-const GEO_FADE_MS    = 1500;  // fixed fadeout
-const GEO_CYCLE_PAUSE_MS = 4000; // pause after fade before next cycle
+// delay (10s, invisible) -> visible (1s, FULL opacity instantly) -> fade (1.5s, fades out) -> pause -> repeat
+const GEO_DELAY_MS       = 10000;
+const GEO_VISIBLE_MS     = 1000;
+const GEO_FADE_MS        = 1500;
+const GEO_CYCLE_PAUSE_MS = 4000;
 
 let geoPhase = 'delay';
 let geoPhaseStart = 0;
-let geoOpacity = 0;
-let geoFrozenDirection = 0; // direction locked at the moment it appears
-let geoHasFrozen = false;
+let geoOpacity = 0;              // 0 or 1 during delay/visible; interpolated ONLY during fade
+let geoFrozenDirection = 0;
 
 function startGeoCycle(now) {
   geoPhase = 'delay';
   geoPhaseStart = now;
   geoOpacity = 0;
-  geoHasFrozen = false;
 }
 
 function updateGeoDot(now) {
@@ -138,22 +135,23 @@ function updateGeoDot(now) {
   if (geoPhase === 'delay') {
     geoOpacity = 0;
     if (elapsed >= GEO_DELAY_MS) {
+      // INSTANT APPEAR
       geoPhase = 'visible';
       geoPhaseStart = now;
-      // Freeze direction right when it appears
+      geoOpacity = 1;                    // <-- hard cut to full opacity
       geoFrozenDirection = compassDirection;
-      geoHasFrozen = true;
     }
   } else if (geoPhase === 'visible') {
-    geoOpacity = 1;
+    geoOpacity = 1;                       // <-- stays at exactly 1, no interpolation
     if (elapsed >= GEO_VISIBLE_MS) {
       geoPhase = 'fade';
       geoPhaseStart = now;
     }
   } else if (geoPhase === 'fade') {
     const t = Math.min(elapsed / GEO_FADE_MS, 1);
-    geoOpacity = 1 - t;
+    geoOpacity = 1 - t;                   // <-- fade ONLY here
     if (t >= 1) {
+      geoOpacity = 0;
       if (elapsed >= GEO_FADE_MS + GEO_CYCLE_PAUSE_MS) {
         startGeoCycle(now);
       }
@@ -162,16 +160,10 @@ function updateGeoDot(now) {
 }
 
 // ===== BORDER HIGHLIGHT =====
-let borderHighlights = {
-  left: false,
-  right: false,
-  bottom: false,
-  intensity: 0
-};
-
+let borderHighlights = { left: false, right: false, bottom: false, intensity: 0 };
 let deviceOrientation = { available: false, alpha: 0, beta: 0, gamma: 0 };
 
-// ===== ROLL EFFECT STATE =====
+// ===== ROLL EFFECT =====
 let isRolling = false;
 let rollOffset = 0;
 let rollSpeed = 30;
@@ -179,7 +171,7 @@ let rollCount = 0;
 let maxRolls = 5;
 let lastRollTime = 0;
 
-// ===== WARP EFFECT STATE =====
+// ===== WARP EFFECT =====
 let lastWarpTime = 0;
 let warpActive = false;
 let warpProgress = 0;
@@ -195,11 +187,7 @@ const tempCtx = tempCanvas.getContext('2d');
 // Click handler
 canvas.addEventListener('click', (e) => {
   const rect = canvas.getBoundingClientRect();
-  greenDots.push({
-    x: e.clientX - rect.left,
-    y: e.clientY - rect.top,
-    life: 100
-  });
+  greenDots.push({ x: e.clientX - rect.left, y: e.clientY - rect.top, life: 100 });
 });
 
 // Audio
@@ -207,7 +195,7 @@ function playBackgroundAudio() {
   backgroundAudio.volume = 0.4;
   const playPromise = backgroundAudio.play();
   if (playPromise !== undefined) {
-    playPromise.catch(error => {
+    playPromise.catch(() => {
       const newAudio = new Audio(backgroundAudio.src);
       newAudio.volume = 0.4;
       newAudio.loop = true;
@@ -216,7 +204,6 @@ function playBackgroundAudio() {
   }
 }
 
-// Countdown
 function startCountdown(duration, callback) {
   let timeLeft = duration;
   countdownElement.textContent = `SYSTEM BOOT IN: ${timeLeft.toFixed(1)}s`;
@@ -238,7 +225,6 @@ function startRadarSystem() {
   drawEverything();
 }
 
-// Orientation
 function initDeviceOrientation() {
   backgroundAudio.volume = 0.4;
 
@@ -298,11 +284,9 @@ function setupMouseOrientation() {
     const centerY = canvas.height * 0.72;
     const dx = mx - centerX;
     const dy = my - centerY;
-
     let angle = Math.atan2(dy, dx) * (180 / Math.PI);
     angle = (angle + 90) % 360;
     if (angle < 0) angle += 360;
-
     compassDirection = angle;
     updateBorderHighlights();
   });
@@ -335,7 +319,6 @@ function isInRadarCone(dir) {
 
 // ===== DRAW LOOP =====
 function drawEverything() {
-  // Roll trigger (every 5 minutes)
   const now = Date.now();
   if (!lastRollTime) lastRollTime = now + 5000;
   if (!isRolling && (now - lastRollTime > 300000)) {
@@ -344,7 +327,6 @@ function drawEverything() {
     rollCount = 0;
     rollSpeed = 30;
   }
-
   drawRadarUI();
   requestAnimationFrame(drawEverything);
 }
@@ -355,16 +337,15 @@ function drawRadarUI() {
   const now = Date.now();
   updateGeoDot(now);
 
-  // --- Scan lines ---
+  // Scanlines
   ctx.fillStyle = 'rgba(0,0,0,2)';
   for (let y = 0; y < canvas.height; y += 5) {
     ctx.fillRect(0, y, canvas.width, .8);
   }
 
-  // --- Pulsing static ---
+  // Pulsing static
   const staticTimer = Date.now() / 1000;
   const pulse = Math.sin(staticTimer * 2) * 0.5 + 0.5;
-
   if (pulse > 0.3) {
     const intensity = pulse;
     const numParticles = Math.floor(30 * intensity);
@@ -378,24 +359,19 @@ function drawRadarUI() {
     }
   }
 
-  // --- Vertical jitter ---
+  // Vertical jitter
   if (Math.random() > 0.97) {
     const jitterAmount = Math.random() * 4 - 2;
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     ctx.putImageData(imageData, 0, jitterAmount);
   }
 
-  // ===== GAPPED CIRCLE =====
+  // GAPPED CIRCLE
   const circleX = canvas.width / 2;
   const circleY = canvas.height * 0.71;
   const circleRadius = 110;
   const lineWidth = 45;
-
-  const visibleSegments = [
-    [232, 315],
-    [45, 130],
-    [137, 225],
-  ];
+  const visibleSegments = [[232, 315], [45, 130], [137, 225]];
 
   visibleSegments.forEach(([startDeg, endDeg], index) => {
     const startRad = ((startDeg - 90) * Math.PI / 180);
@@ -404,16 +380,9 @@ function drawRadarUI() {
     let isHighlighted = false;
     let highlightIntensity = 0;
 
-    if (index === 0 && borderHighlights.left) {
-      isHighlighted = true;
-      highlightIntensity = borderHighlights.intensity;
-    } else if (index === 1 && borderHighlights.right) {
-      isHighlighted = true;
-      highlightIntensity = borderHighlights.intensity;
-    } else if (index === 2 && borderHighlights.bottom) {
-      isHighlighted = true;
-      highlightIntensity = borderHighlights.intensity;
-    }
+    if (index === 0 && borderHighlights.left) { isHighlighted = true; highlightIntensity = borderHighlights.intensity; }
+    else if (index === 1 && borderHighlights.right) { isHighlighted = true; highlightIntensity = borderHighlights.intensity; }
+    else if (index === 2 && borderHighlights.bottom) { isHighlighted = true; highlightIntensity = borderHighlights.intensity; }
 
     if (isHighlighted && highlightIntensity > 0) {
       const baseR = 109, baseG = 255, baseB = 109;
@@ -421,7 +390,6 @@ function drawRadarUI() {
       const r = Math.round(baseR + (targetR - baseR) * highlightIntensity);
       const g = Math.round(baseG + (targetG - baseG) * highlightIntensity);
       const b = Math.round(baseB + (targetB - baseB) * highlightIntensity);
-
       ctx.lineWidth = lineWidth + (10 * highlightIntensity);
       ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${0.3 + 0.7 * highlightIntensity})`;
       ctx.shadowBlur = 20 * highlightIntensity;
@@ -446,17 +414,15 @@ function drawRadarUI() {
       ctx.arc(circleX, circleY, circleRadius, startRad, endRad);
       ctx.stroke();
     }
-
     ctx.shadowBlur = 0;
   });
 
-  // ===== RADAR ARCS =====
+  // RADAR ARCS
   const cx = canvas.width / 2;
   const apexY = canvas.height * 0.72;
   const radius = canvas.height * 0.62;
   const startAngle = -Math.PI * 0.73;
   const endAngle   = -Math.PI * 0.27;
-
   const green = "#6dff6d";
 
   function polar(r, a) {
@@ -509,17 +475,15 @@ function drawRadarUI() {
   });
   ctx.setLineDash([]);
 
-  // ===== CLICK DOTS =====
+  // CLICK DOTS
   for (let i = greenDots.length - 1; i >= 0; i--) {
     const dot = greenDots[i];
     dot.life -= 1.5;
-
     if (dot.life > 0) {
       ctx.fillStyle = `rgba(109, 255, 109, ${dot.life/100})`;
       ctx.beginPath();
       ctx.arc(dot.x, dot.y, 6, 0, Math.PI * 2);
       ctx.fill();
-
       ctx.fillStyle = `rgba(109, 255, 109, ${dot.life/200})`;
       ctx.beginPath();
       ctx.arc(dot.x, dot.y, 10, 0, Math.PI * 2);
@@ -549,35 +513,30 @@ function drawRadarUI() {
     ctx.fillText(t, cx + radius * 0.55, apexY + 35 + i * 36);
   });
 
-  // ===== GEO DOT (instant appear, 1s hold, fixed fade) =====
+  // ===== GEO DOT =====
+  // Hard rules:
+  //   - no size change, ever
+  //   - no position change while visible
+  //   - instant full opacity on appear
+  //   - only fades during the 'fade' phase
   if (geoOpacity > 0.01 && isInRadarCone(geoFrozenDirection)) {
-    // Dot sits at a fixed distance from the apex (40% of radar radius)
+    const dotRadius = 8;                    // FIXED size, always
     const dotDistance = 0.4;
     const r = radius * dotDistance;
     const canvasAngle = (geoFrozenDirection - 90) * (Math.PI / 180);
     const dotX = cx + Math.cos(canvasAngle) * r;
     const dotY = apexY + Math.sin(canvasAngle) * r;
 
-    // Fixed size
-    const dotRadius = 8;
-
-    // Glow
-    ctx.fillStyle = `rgba(50, 255, 50, ${0.3 * geoOpacity})`;
-    ctx.beginPath();
-    ctx.arc(dotX, dotY, dotRadius * 2, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Core
+    // Core dot — opacity ONLY changes during fade phase
     ctx.fillStyle = `rgba(50, 255, 50, ${geoOpacity})`;
     ctx.beginPath();
     ctx.arc(dotX, dotY, dotRadius, 0, Math.PI * 2);
     ctx.fill();
 
-    // Direction indicator
+    // Direction line — also fades with it, but is drawn at fixed position/size
     const lineLength = 20;
     const endX = dotX + Math.cos(canvasAngle) * lineLength;
     const endY = dotY + Math.sin(canvasAngle) * lineLength;
-
     ctx.strokeStyle = `rgba(50, 255, 50, ${geoOpacity})`;
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -586,7 +545,7 @@ function drawRadarUI() {
     ctx.stroke();
   }
 
-  // ===== MAGNETIC WARP EFFECT =====
+  // ===== WARP EFFECT =====
   if (!lastWarpTime) {
     lastWarpTime = now;
     warpsThisCycle = Math.floor(Math.random() * 4) + 1;
@@ -603,18 +562,12 @@ function drawRadarUI() {
 
   if (warpActive) {
     warpProgress++;
-
     let intensity = 0;
-    if (warpProgress < warpDuration * 0.3) {
-      intensity = (warpProgress / (warpDuration * 0.3));
-    } else if (warpProgress < warpDuration * 0.7) {
-      intensity = 1;
-    } else {
-      intensity = 1 - ((warpProgress - warpDuration * 0.7) / (warpDuration * 0.3));
-    }
+    if (warpProgress < warpDuration * 0.3) intensity = warpProgress / (warpDuration * 0.3);
+    else if (warpProgress < warpDuration * 0.7) intensity = 1;
+    else intensity = 1 - ((warpProgress - warpDuration * 0.7) / (warpDuration * 0.3));
 
     const currentStrength = warpStrength * intensity;
-
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
     const tempData = ctx.createImageData(canvas.width, canvas.height);
@@ -624,29 +577,26 @@ function drawRadarUI() {
         const dx = x - warpX;
         const dy = y - warpY;
         const distance = Math.sqrt(dx*dx + dy*dy);
-
         const warpAmount = currentStrength / (distance + 10);
         const srcX = Math.max(0, Math.min(canvas.width-1, x + dx * warpAmount * 0.015));
         const srcY = Math.max(0, Math.min(canvas.height-1, y + dy * warpAmount * 0.015));
-
         const srcIdx = (Math.floor(srcY) * canvas.width + Math.floor(srcX)) * 4;
         const dstIdx = (y * canvas.width + x) * 4;
 
         if (distance < 150) {
           const colorDistort = 1 + (currentStrength / 300) * (1 - distance/150);
-          tempData.data[dstIdx] = Math.min(255, data[srcIdx] * colorDistort);
-          tempData.data[dstIdx+1] = Math.min(255, data[srcIdx+1] * (colorDistort * 0.7));
-          tempData.data[dstIdx+2] = Math.min(255, data[srcIdx+2] * (colorDistort * 1.3));
-          tempData.data[dstIdx+3] = data[srcIdx+3];
+          tempData.data[dstIdx]     = Math.min(255, data[srcIdx] * colorDistort);
+          tempData.data[dstIdx + 1] = Math.min(255, data[srcIdx+1] * (colorDistort * 0.7));
+          tempData.data[dstIdx + 2] = Math.min(255, data[srcIdx+2] * (colorDistort * 1.3));
+          tempData.data[dstIdx + 3] = data[srcIdx + 3];
         } else {
-          tempData.data[dstIdx] = data[srcIdx];
-          tempData.data[dstIdx+1] = data[srcIdx+1];
-          tempData.data[dstIdx+2] = data[srcIdx+2];
-          tempData.data[dstIdx+3] = data[srcIdx+3];
+          tempData.data[dstIdx]     = data[srcIdx];
+          tempData.data[dstIdx + 1] = data[srcIdx + 1];
+          tempData.data[dstIdx + 2] = data[srcIdx + 2];
+          tempData.data[dstIdx + 3] = data[srcIdx + 3];
         }
       }
     }
-
     ctx.putImageData(tempData, 0, 0);
 
     ctx.fillStyle = `rgba(255, 50, 50, ${intensity * 0.6})`;
@@ -678,7 +628,6 @@ function drawRadarUI() {
   if (isRolling) {
     tempCtx.clearRect(0, 0, canvas.width, canvas.height);
     tempCtx.drawImage(canvas, 0, 0);
-
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     rollOffset += rollSpeed;
@@ -686,38 +635,29 @@ function drawRadarUI() {
     if (rollOffset >= canvas.height) {
       rollOffset = 0;
       rollCount++;
-
       if (rollCount >= 4) rollSpeed *= 0.7;
-
       if (rollCount >= maxRolls || rollSpeed < 1) {
         isRolling = false;
         rollOffset = 0;
         rollCount = 0;
         rollSpeed = 30;
         lastRollTime = Date.now();
-
         ctx.drawImage(tempCanvas, 0, 0);
         return;
       }
     }
 
     ctx.drawImage(tempCanvas,
-      0, canvas.height - rollOffset,
-      canvas.width, rollOffset,
-      0, 0,
-      canvas.width, rollOffset
+      0, canvas.height - rollOffset, canvas.width, rollOffset,
+      0, 0, canvas.width, rollOffset
     );
-
     ctx.drawImage(tempCanvas,
-      0, 0,
-      canvas.width, canvas.height - rollOffset,
-      0, rollOffset,
-      canvas.width, canvas.height - rollOffset
+      0, 0, canvas.width, canvas.height - rollOffset,
+      0, rollOffset, canvas.width, canvas.height - rollOffset
     );
 
     ctx.strokeStyle = rollCount < 4 ? 'rgba(255, 50, 50, 0.6)' : 'rgba(120, 255, 120, 0.4)';
     ctx.lineWidth = 2;
-
     for (let i = 0; i < 3; i++) {
       const lineY = (rollOffset + i * 50) % canvas.height;
       ctx.beginPath();
