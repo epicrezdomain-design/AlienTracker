@@ -111,20 +111,18 @@ const greenDots = [];
 
 let compassDirection = 0;
 
-// ===== GEO DOT STEPPED APPROACH + RECEDE + FADE =====
-// distance: 1.0 = far edge, 0.0 = apex (closest)
+// ===== GEO DOT STEPPED APPROACH =====
 const STEP_DISTANCES = [0.95, 0.75, 0.55, 0.35, 0.15];
 const STEP_DELAYS_MS = [3000, 2000, 1500, 1000];
 
-const INITIAL_DELAY_MS = 10000; // 10s every cycle
+const INITIAL_DELAY_MS = 10000;
 const RECEDE_MS        = 3000;
 const FADE_MS          = 1500;
 const CYCLE_PAUSE_MS   = 4000;
 
-// Phase: 'delay' | 'stepping' | 'recede' | 'fade' | 'pause'
-let geoPhase = 'delay';
-let geoPhaseStart = 0;          // when the current phase began
-let geoFadeStart = 0;           // dedicated fade start timestamp (for a rock-solid fade)
+let geoPhase = 'delay';        // 'delay' | 'stepping' | 'recede' | 'fade' | 'pause'
+let geoPhaseStart = 0;
+let geoFadeStart = 0;
 let geoStepIndex = 0;
 let geoStepStart = 0;
 let geoDistance = STEP_DISTANCES[0];
@@ -157,39 +155,31 @@ function updateGeoDot(now) {
     if (now - geoStepStart >= STEP_DELAYS_MS[geoStepIndex]) {
       geoStepIndex++;
       geoStepStart = now;
-
       if (geoStepIndex < STEP_DISTANCES.length) {
-        geoDistance = STEP_DISTANCES[geoStepIndex]; // instant jump closer
+        geoDistance = STEP_DISTANCES[geoStepIndex];
       } else {
-        // all steps done -> recede
         geoPhase = 'recede';
         geoPhaseStart = now;
       }
     }
 
   } else if (geoPhase === 'recede') {
-    const startDistance = STEP_DISTANCES[STEP_DISTANCES.length - 1]; // 0.15
-    const endDistance   = STEP_DISTANCES[0];                          // 0.95
+    const startDistance = STEP_DISTANCES[STEP_DISTANCES.length - 1];
+    const endDistance   = STEP_DISTANCES[0];
     const t = Math.min((now - geoPhaseStart) / RECEDE_MS, 1);
-    const eased = t < 0.5
-      ? 2 * t * t
-      : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
     geoDistance = startDistance + (endDistance - startDistance) * eased;
     geoOpacity = 1;
 
     if (t >= 1) {
-      // Enter fade — capture the EXACT start time
       geoPhase = 'fade';
       geoFadeStart = now;
     }
 
   } else if (geoPhase === 'fade') {
-    // Fade is measured from geoFadeStart — cannot be reset by anything else
     const t = Math.min((now - geoFadeStart) / FADE_MS, 1);
     geoOpacity = 1 - t;
-
     if (t >= 1) {
-      // Stay invisible during pause, then restart cycle
       geoPhase = 'pause';
       geoPhaseStart = now;
       geoOpacity = 0;
@@ -400,8 +390,9 @@ function drawRadarUI() {
     }
   }
 
-  // Vertical jitter
-  if (Math.random() > 0.97) {
+  // Vertical jitter — skip while the dot is mid-fade so it doesn't smear the dot
+  const dotIsFading = (geoPhase === 'fade');
+  if (!dotIsFading && Math.random() > 0.97) {
     const jitterAmount = Math.random() * 4 - 2;
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     ctx.putImageData(imageData, 0, jitterAmount);
@@ -546,6 +537,13 @@ function drawRadarUI() {
   ctx.fillText("1", cx - radius * 0.63 + 50, apexY + 44);
   ctx.fillText("2", cx - radius * 0.63 + 24, apexY + 104);
 
+  // Version label under the "2" button
+  ctx.fillStyle = "rgba(109, 255, 109, 0.7)";
+  ctx.font = "14px monospace";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText("V.01", cx - radius * 0.63, apexY + 140);
+
   // Right labels
   ctx.fillStyle = green;
   ctx.font = "Bold 26px monospace";
@@ -555,18 +553,21 @@ function drawRadarUI() {
   });
 
   // ===== GEO DOT =====
-  if (geoOpacity > 0.01 && isInRadarCone(geoFrozenDirection)) {
+  // Only skip drawing when opacity is truly ~0
+  if (geoOpacity > 0.005 && isInRadarCone(geoFrozenDirection)) {
     const dotRadius = 8;
     const r = radius * geoDistance;
     const canvasAngle = (geoFrozenDirection - 90) * (Math.PI / 180);
     const dotX = cx + Math.cos(canvasAngle) * r;
     const dotY = apexY + Math.sin(canvasAngle) * r;
 
+    // Core dot
     ctx.fillStyle = `rgba(50, 255, 50, ${geoOpacity})`;
     ctx.beginPath();
     ctx.arc(dotX, dotY, dotRadius, 0, Math.PI * 2);
     ctx.fill();
 
+    // Direction line
     const lineLength = 20;
     const endX = dotX + Math.cos(canvasAngle) * lineLength;
     const endY = dotY + Math.sin(canvasAngle) * lineLength;
