@@ -4,81 +4,32 @@
 <meta charset="UTF-8" />
 <title>Radar UI</title>
 <style>
-  html, body {
-    margin: 0;
-    background: #0b140b;
-    height: 100%;
-  }
-
-  canvas {
-    display: block;
-    margin: auto;
-    background: radial-gradient(circle at 50% 70%, #0f2a12, #081008 100%);
-  }
-
+  html, body { margin: 0; background: #0b140b; height: 100%; }
+  canvas { display: block; margin: auto; background: radial-gradient(circle at 50% 70%, #0f2a12, #081008 100%); }
   .permission-notice {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: rgba(0, 20, 0, 0.9);
-    color: #6dff6d;
-    padding: 30px;
-    border: 2px solid #6dff6d;
-    border-radius: 10px;
-    font-family: monospace;
-    text-align: center;
-    z-index: 100;
-    width: 80%;
-    max-width: 500px;
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    background: rgba(0, 20, 0, 0.9); color: #6dff6d; padding: 30px;
+    border: 2px solid #6dff6d; border-radius: 10px; font-family: monospace;
+    text-align: center; z-index: 100; width: 80%; max-width: 500px;
     box-shadow: 0 0 30px rgba(109, 255, 109, 0.5);
   }
-
   .enable-button {
-    background: #0b140b;
-    border: 2px solid #6dff6d;
-    color: #6dff6d;
-    padding: 15px 30px;
-    border-radius: 5px;
-    cursor: pointer;
-    font-family: monospace;
-    font-size: 18px;
-    margin-top: 20px;
-    transition: all 0.3s;
+    background: #0b140b; border: 2px solid #6dff6d; color: #6dff6d;
+    padding: 15px 30px; border-radius: 5px; cursor: pointer;
+    font-family: monospace; font-size: 18px; margin-top: 20px; transition: all 0.3s;
   }
-
-  .enable-button:hover {
-    background: #6dff6d;
-    color: #0b140b;
-    box-shadow: 0 0 20px rgba(109, 255, 109, 0.8);
-  }
-
+  .enable-button:hover { background: #6dff6d; color: #0b140b; box-shadow: 0 0 20px rgba(109, 255, 109, 0.8); }
   #blackOverlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: #000000;
-    z-index: 99;
-    display: flex;
-    justify-content: center;
-    align-items: center;
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: #000000; z-index: 99; display: flex; justify-content: center; align-items: center;
   }
-
-  .countdown {
-    font-size: 24px;
-    color: #32ff32;
-    margin-top: 20px;
-    font-weight: bold;
-    min-height: 30px;
-  }
+  .countdown { font-size: 24px; color: #32ff32; margin-top: 20px; font-weight: bold; min-height: 30px; }
 </style>
 </head>
 <body>
 
 <div id="blackOverlay">
-  <div class="permission-notice" id="permissionNotice">
+  <div class="permission-notice">
     <h3>⚠️ ALIEN TRACKER INITIALIZATION ⚠️</h3>
     <p>This device requires compass access to activate the geo-locked radar system.</p>
     <p>Ensure you are in a secure location before proceeding.</p>
@@ -92,7 +43,6 @@
 
 <audio id="backgroundAudio" loop preload="auto">
   <source src="https://github.com/epicrezdomain-design/AlienTracker/raw/main/TrackerAmbient.mp3" type="audio/mp3">
-  Your browser does not support the audio element.
 </audio>
 
 <script>
@@ -108,144 +58,130 @@ canvas.width = 1280;
 canvas.height = 720;
 
 const greenDots = [];
-
 let compassDirection = 0;
 
-// ===== GEO DOT STEPPED APPROACH =====
+// ============================================================
+// VERSION
+// ============================================================
+const VERSION = "V.03";
+
+// ============================================================
+// TIMELINE (all relative to dotAppearTime, in ms)
+// ============================================================
+// 0           -> appear at 0.95
+// 3000        -> jump to 0.75
+// 5000        -> jump to 0.55
+// 6500        -> jump to 0.35
+// 7500        -> jump to 0.15
+// 7500-10500  -> recede back out (0.15 -> 0.95)
+// 10500-13500 -> FADE OUT (1 -> 0)
+// 13500-17500 -> invisible pause
+// 17500       -> cycle ends; next dot scheduled 10s after that
+// ============================================================
+const STEP_TIMES = [0, 3000, 5000, 6500, 7500];
 const STEP_DISTANCES = [0.95, 0.75, 0.55, 0.35, 0.15];
-const STEP_DELAYS_MS = [3000, 2000, 1500, 1000];
+const RECEDE_START = 7500;
+const RECEDE_END   = 10500;
+const FADE_START   = 10500;
+const FADE_END     = 13500;
+const CYCLE_END    = 17500;
 
-const INITIAL_DELAY_MS = 10000;
-const RECEDE_MS        = 3000;
-const FADE_MS          = 3000;   // <<< long, obvious fade
-const CYCLE_PAUSE_MS   = 4000;
-
-let geoPhase = 'delay';        // 'delay' | 'stepping' | 'recede' | 'fade' | 'pause'
-let geoPhaseStart = 0;
-let geoFadeStart = 0;
-let geoStepIndex = 0;
-let geoStepStart = 0;
-let geoDistance = STEP_DISTANCES[0];
-let geoOpacity = 0;
+let dotAppearTime = 0;
+let nextAppearTime = 0;
 let geoFrozenDirection = 0;
 
-function startGeoCycle(now) {
-  geoPhase = 'delay';
-  geoPhaseStart = now;
-  geoStepIndex = 0;
-  geoStepStart = 0;
-  geoDistance = STEP_DISTANCES[0];
-  geoOpacity = 0;
-  geoFadeStart = 0;
-}
-
-function updateGeoDot(now) {
-  if (geoPhase === 'delay') {
-    geoOpacity = 0;
-    if (now - geoPhaseStart >= INITIAL_DELAY_MS) {
-      geoPhase = 'stepping';
-      geoStepIndex = 0;
-      geoStepStart = now;
-      geoDistance = STEP_DISTANCES[0];
-      geoOpacity = 1;
-      geoFrozenDirection = compassDirection;
-    }
-
-  } else if (geoPhase === 'stepping') {
-    geoOpacity = 1;
-    if (now - geoStepStart >= STEP_DELAYS_MS[geoStepIndex]) {
-      geoStepIndex++;
-      geoStepStart = now;
-      if (geoStepIndex < STEP_DISTANCES.length) {
-        geoDistance = STEP_DISTANCES[geoStepIndex];
-      } else {
-        geoPhase = 'recede';
-        geoPhaseStart = now;
-      }
-    }
-
-  } else if (geoPhase === 'recede') {
-    const startDistance = STEP_DISTANCES[STEP_DISTANCES.length - 1];
-    const endDistance   = STEP_DISTANCES[0];
-    const t = Math.min((now - geoPhaseStart) / RECEDE_MS, 1);
-    const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-    geoDistance = startDistance + (endDistance - startDistance) * eased;
-    geoOpacity = 1;
-
-    if (t >= 1) {
-      geoPhase = 'fade';
-      geoFadeStart = now;      // exact moment the fade begins
-    }
-
-  } else if (geoPhase === 'fade') {
-    // self-heal if geoFadeStart somehow got zeroed
-    if (!geoFadeStart) geoFadeStart = now;
-    const t = Math.min((now - geoFadeStart) / FADE_MS, 1);
-    geoOpacity = 1 - t;
-    if (t >= 1) {
-      geoPhase = 'pause';
-      geoPhaseStart = now;
-      geoOpacity = 0;
-    }
-
-  } else if (geoPhase === 'pause') {
-    geoOpacity = 0;
-    if (now - geoPhaseStart >= CYCLE_PAUSE_MS) {
-      startGeoCycle(now);
-    }
+// ============================================================
+// PURE FUNCTION: compute dot state from "now" alone
+// ============================================================
+function computeGeoDot(now) {
+  // First appearance / cycle scheduling
+  if (dotAppearTime === 0) {
+    dotAppearTime = now;
+    nextAppearTime = dotAppearTime + CYCLE_END + 10000;
+    geoFrozenDirection = compassDirection;
+  } else if (now >= nextAppearTime) {
+    // Start a fresh cycle
+    dotAppearTime = now;
+    nextAppearTime = dotAppearTime + CYCLE_END + 10000;
+    geoFrozenDirection = compassDirection;
   }
+
+  const t = now - dotAppearTime;
+
+  // Outside the active cycle -> invisible
+  if (t < 0 || t >= CYCLE_END) {
+    return { visible: false, opacity: 0, distance: STEP_DISTANCES[0] };
+  }
+
+  // Distance
+  let distance;
+  if (t < RECEDE_START) {
+    let stepIdx = 0;
+    for (let i = STEP_TIMES.length - 1; i >= 0; i--) {
+      if (t >= STEP_TIMES[i]) { stepIdx = i; break; }
+    }
+    distance = STEP_DISTANCES[stepIdx];
+  } else if (t < RECEDE_END) {
+    const rt = (t - RECEDE_START) / (RECEDE_END - RECEDE_START);
+    const eased = rt < 0.5 ? 2*rt*rt : 1 - Math.pow(-2*rt+2, 2)/2;
+    distance = STEP_DISTANCES[STEP_DISTANCES.length-1]
+             + (STEP_DISTANCES[0] - STEP_DISTANCES[STEP_DISTANCES.length-1]) * eased;
+  } else {
+    distance = STEP_DISTANCES[0];
+  }
+
+  // Opacity
+  let opacity;
+  if (t < FADE_START) {
+    opacity = 1;
+  } else if (t < FADE_END) {
+    opacity = 1 - (t - FADE_START) / (FADE_END - FADE_START);
+  } else {
+    opacity = 0;
+  }
+
+  return { visible: opacity > 0.003, opacity, distance };
 }
 
-// ===== BORDER HIGHLIGHT =====
+// ============================================================
+// State
+// ============================================================
 let borderHighlights = { left: false, right: false, bottom: false, intensity: 0 };
 let deviceOrientation = { available: false, alpha: 0, beta: 0, gamma: 0 };
 
-// ===== ROLL EFFECT =====
-let isRolling = false;
-let rollOffset = 0;
-let rollSpeed = 30;
-let rollCount = 0;
-let maxRolls = 5;
-let lastRollTime = 0;
-
-// ===== WARP EFFECT =====
-let lastWarpTime = 0;
-let warpActive = false;
-let warpProgress = 0;
-let warpX = 0, warpY = 0, warpStrength = 0, warpDuration = 0;
-let warpsThisCycle = 0;
-let warpsDone = 0;
+let isRolling = false, rollOffset = 0, rollSpeed = 30, rollCount = 0, maxRolls = 5, lastRollTime = 0;
+let lastWarpTime = 0, warpActive = false, warpProgress = 0, warpX = 0, warpY = 0, warpStrength = 0, warpDuration = 0, warpsThisCycle = 0, warpsDone = 0;
 
 const tempCanvas = document.createElement('canvas');
 tempCanvas.width = canvas.width;
 tempCanvas.height = canvas.height;
 const tempCtx = tempCanvas.getContext('2d');
 
+// Click handler
 canvas.addEventListener('click', (e) => {
   const rect = canvas.getBoundingClientRect();
   greenDots.push({ x: e.clientX - rect.left, y: e.clientY - rect.top, life: 100 });
 });
 
+// Audio
 function playBackgroundAudio() {
   backgroundAudio.volume = 0.4;
-  const playPromise = backgroundAudio.play();
-  if (playPromise !== undefined) {
-    playPromise.catch(() => {
-      const newAudio = new Audio(backgroundAudio.src);
-      newAudio.volume = 0.4;
-      newAudio.loop = true;
-      newAudio.play().catch(e => console.log("Audio failed:", e));
-    });
-  }
+  const p = backgroundAudio.play();
+  if (p) p.catch(() => {
+    const na = new Audio(backgroundAudio.src);
+    na.volume = 0.4; na.loop = true;
+    na.play().catch(()=>{});
+  });
 }
 
+// Countdown
 function startCountdown(duration, callback) {
   let timeLeft = duration;
   countdownElement.textContent = `SYSTEM BOOT IN: ${timeLeft.toFixed(1)}s`;
-  const countdownInterval = setInterval(() => {
+  const ci = setInterval(() => {
     timeLeft -= 0.1;
     if (timeLeft <= 0) {
-      clearInterval(countdownInterval);
+      clearInterval(ci);
       countdownElement.textContent = "SYSTEM ONLINE";
       setTimeout(callback, 300);
     } else {
@@ -256,34 +192,31 @@ function startCountdown(duration, callback) {
 
 function startRadarSystem() {
   blackOverlay.style.display = 'none';
-  startGeoCycle(Date.now());
+  dotAppearTime = 0;
+  nextAppearTime = 0;
   drawEverything();
 }
 
+// Orientation
 function initDeviceOrientation() {
   backgroundAudio.volume = 0.4;
-
   if (window.DeviceOrientationEvent) {
     if (typeof DeviceOrientationEvent.requestPermission === 'function') {
       enableButton.addEventListener('click', () => {
         playBackgroundAudio();
-        DeviceOrientationEvent.requestPermission()
-          .then(permissionState => {
-            if (permissionState === 'granted') {
-              window.addEventListener('deviceorientation', handleOrientation);
-              deviceOrientation.available = true;
-              enableButton.disabled = true;
-              enableButton.textContent = "INITIALIZING...";
-              startCountdown(.8, startRadarSystem);
-            }
-          })
-          .catch(console.error);
+        DeviceOrientationEvent.requestPermission().then(ps => {
+          if (ps === 'granted') {
+            window.addEventListener('deviceorientation', handleOrientation);
+            enableButton.disabled = true;
+            enableButton.textContent = "INITIALIZING...";
+            startCountdown(.8, startRadarSystem);
+          }
+        }).catch(console.error);
       });
     } else {
       enableButton.addEventListener('click', () => {
         playBackgroundAudio();
         window.addEventListener('deviceorientation', handleOrientation);
-        deviceOrientation.available = true;
         enableButton.disabled = true;
         enableButton.textContent = "INITIALIZING...";
         startCountdown(.8, startRadarSystem);
@@ -300,12 +233,9 @@ function initDeviceOrientation() {
   }
 }
 
-function handleOrientation(event) {
-  if (event.alpha !== null) {
-    deviceOrientation.alpha = event.alpha;
-    deviceOrientation.beta = event.beta;
-    deviceOrientation.gamma = event.gamma;
-    compassDirection = event.alpha;
+function handleOrientation(e) {
+  if (e.alpha !== null) {
+    compassDirection = e.alpha;
     updateBorderHighlights();
   }
 }
@@ -313,53 +243,38 @@ function handleOrientation(event) {
 function setupMouseOrientation() {
   canvas.addEventListener('mousemove', (e) => {
     const rect = canvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
-    const centerX = canvas.width / 2;
-    const centerY = canvas.height * 0.72;
-    const dx = mx - centerX;
-    const dy = my - centerY;
-    let angle = Math.atan2(dy, dx) * (180 / Math.PI);
-    angle = (angle + 90) % 360;
-    if (angle < 0) angle += 360;
-    compassDirection = angle;
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    const dx = mx - canvas.width/2, dy = my - canvas.height*0.72;
+    let a = Math.atan2(dy, dx) * 180 / Math.PI;
+    a = (a + 90) % 360; if (a < 0) a += 360;
+    compassDirection = a;
     updateBorderHighlights();
   });
 }
 
 function updateBorderHighlights() {
-  const dir = compassDirection;
-  const inRadar = (dir >= 315 || dir <= 45);
-
-  borderHighlights.left = false;
-  borderHighlights.right = false;
-  borderHighlights.bottom = false;
-
-  if (!inRadar) {
-    if ((dir > 45 && dir <= 135) || (dir >= 225 && dir < 315)) {
-      if (dir >= 225 && dir < 315) borderHighlights.left = true;
+  const d = compassDirection;
+  const inR = (d >= 315 || d <= 45);
+  borderHighlights.left = borderHighlights.right = borderHighlights.bottom = false;
+  if (!inR) {
+    if ((d > 45 && d <= 135) || (d >= 225 && d < 315)) {
+      if (d >= 225 && d < 315) borderHighlights.left = true;
       else borderHighlights.right = true;
-    } else {
-      borderHighlights.bottom = true;
-    }
+    } else borderHighlights.bottom = true;
     borderHighlights.intensity = Math.min(1, borderHighlights.intensity + 0.1);
   } else {
     borderHighlights.intensity = Math.max(0, borderHighlights.intensity - 0.05);
   }
 }
 
-function isInRadarCone(dir) {
-  return (dir >= 315 || dir <= 45);
-}
+function isInRadarCone(d) { return (d >= 315 || d <= 45); }
 
+// Draw loop
 function drawEverything() {
   const now = Date.now();
   if (!lastRollTime) lastRollTime = now + 5000;
   if (!isRolling && (now - lastRollTime > 300000)) {
-    isRolling = true;
-    rollOffset = 0;
-    rollCount = 0;
-    rollSpeed = 30;
+    isRolling = true; rollOffset = 0; rollCount = 0; rollSpeed = 30;
   }
   drawRadarUI();
   requestAnimationFrame(drawEverything);
@@ -367,296 +282,190 @@ function drawEverything() {
 
 function drawRadarUI() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-
   const now = Date.now();
-  updateGeoDot(now);
+
+  const dot = computeGeoDot(now);
 
   // Scanlines
   ctx.fillStyle = 'rgba(0,0,0,2)';
-  for (let y = 0; y < canvas.height; y += 5) {
-    ctx.fillRect(0, y, canvas.width, .8);
-  }
+  for (let y = 0; y < canvas.height; y += 5) ctx.fillRect(0, y, canvas.width, .8);
 
-  // Pulsing static
-  const staticTimer = Date.now() / 1000;
-  const pulse = Math.sin(staticTimer * 2) * 0.5 + 0.5;
+  // Static
+  const pulse = Math.sin(now/1000 * 2) * 0.5 + 0.5;
   if (pulse > 0.3) {
-    const intensity = pulse;
-    const numParticles = Math.floor(30 * intensity);
-    for (let i = 0; i < numParticles; i++) {
-      const x = Math.random() * canvas.width;
-      const y = Math.random() * canvas.height;
-      const size = Math.random() * 3 + 1;
-      const alpha = Math.random() * 0.3 * intensity;
-      ctx.fillStyle = `rgba(120, 255, 120, ${alpha})`;
-      ctx.fillRect(x, y, size, size);
+    const n = Math.floor(30 * pulse);
+    for (let i = 0; i < n; i++) {
+      ctx.fillStyle = `rgba(120, 255, 120, ${Math.random() * 0.3 * pulse})`;
+      ctx.fillRect(Math.random()*canvas.width, Math.random()*canvas.height, Math.random()*3+1, Math.random()*3+1);
     }
   }
 
-  // Vertical jitter (skip during fade so it doesn't smear the fading dot)
-  const dotIsFading = (geoPhase === 'fade');
-  if (!dotIsFading && Math.random() > 0.97) {
-    const jitterAmount = Math.random() * 4 - 2;
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    ctx.putImageData(imageData, 0, jitterAmount);
+  // Vertical jitter (skip during fade)
+  if (now - dotAppearTime < FADE_START && Math.random() > 0.97) {
+    const j = Math.random() * 4 - 2;
+    ctx.putImageData(ctx.getImageData(0, 0, canvas.width, canvas.height), 0, j);
   }
 
-  // GAPPED CIRCLE
-  const circleX = canvas.width / 2;
-  const circleY = canvas.height * 0.71;
-  const circleRadius = 110;
-  const lineWidth = 45;
-  const visibleSegments = [[232, 315], [45, 130], [137, 225]];
-
-  visibleSegments.forEach(([startDeg, endDeg], index) => {
-    const startRad = ((startDeg - 90) * Math.PI / 180);
-    const endRad = ((endDeg - 90) * Math.PI / 180);
-
-    let isHighlighted = false;
-    let highlightIntensity = 0;
-
-    if (index === 0 && borderHighlights.left) { isHighlighted = true; highlightIntensity = borderHighlights.intensity; }
-    else if (index === 1 && borderHighlights.right) { isHighlighted = true; highlightIntensity = borderHighlights.intensity; }
-    else if (index === 2 && borderHighlights.bottom) { isHighlighted = true; highlightIntensity = borderHighlights.intensity; }
-
-    if (isHighlighted && highlightIntensity > 0) {
-      const baseR = 109, baseG = 255, baseB = 109;
-      const targetR = 50, targetG = 255, targetB = 50;
-      const r = Math.round(baseR + (targetR - baseR) * highlightIntensity);
-      const g = Math.round(baseG + (targetG - baseG) * highlightIntensity);
-      const b = Math.round(baseB + (targetB - baseB) * highlightIntensity);
-      ctx.lineWidth = lineWidth + (10 * highlightIntensity);
-      ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${0.3 + 0.7 * highlightIntensity})`;
-      ctx.shadowBlur = 20 * highlightIntensity;
-      ctx.shadowColor = `rgba(${r}, ${g}, ${b}, ${0.7 * highlightIntensity})`;
+  // Circle segments
+  const circleX = canvas.width/2, circleY = canvas.height*0.71, circleRadius = 110, lineWidth = 45;
+  [[232,315],[45,130],[137,225]].forEach(([s,e], i) => {
+    const sr = ((s-90)*Math.PI/180), er = ((e-90)*Math.PI/180);
+    let hl = false, hi = 0;
+    if (i===0 && borderHighlights.left) { hl = true; hi = borderHighlights.intensity; }
+    else if (i===1 && borderHighlights.right) { hl = true; hi = borderHighlights.intensity; }
+    else if (i===2 && borderHighlights.bottom) { hl = true; hi = borderHighlights.intensity; }
+    if (hl && hi > 0) {
+      const r = Math.round(109 + (50-109)*hi), g = 255, b = Math.round(109 + (50-109)*hi);
+      ctx.lineWidth = lineWidth + 10*hi;
+      ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${0.3 + 0.7*hi})`;
+      ctx.shadowBlur = 20*hi; ctx.shadowColor = `rgba(${r}, ${g}, ${b}, ${0.7*hi})`;
     } else {
-      ctx.lineWidth = lineWidth;
-      ctx.strokeStyle = "rgba(109, 255, 109, 0.3)";
-      ctx.shadowBlur = 0;
+      ctx.lineWidth = lineWidth; ctx.strokeStyle = "rgba(109, 255, 109, 0.3)"; ctx.shadowBlur = 0;
     }
-
     ctx.lineCap = 'butt';
-
-    if (endDeg < startDeg) {
-      ctx.beginPath();
-      ctx.arc(circleX, circleY, circleRadius, startRad, Math.PI * 2);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(circleX, circleY, circleRadius, 0, endRad);
-      ctx.stroke();
+    if (e < s) {
+      ctx.beginPath(); ctx.arc(circleX, circleY, circleRadius, sr, Math.PI*2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(circleX, circleY, circleRadius, 0, er); ctx.stroke();
     } else {
-      ctx.beginPath();
-      ctx.arc(circleX, circleY, circleRadius, startRad, endRad);
-      ctx.stroke();
+      ctx.beginPath(); ctx.arc(circleX, circleY, circleRadius, sr, er); ctx.stroke();
     }
     ctx.shadowBlur = 0;
   });
 
-  // RADAR ARCS
-  const cx = canvas.width / 2;
-  const apexY = canvas.height * 0.72;
-  const radius = canvas.height * 0.62;
-  const startAngle = -Math.PI * 0.73;
-  const endAngle   = -Math.PI * 0.27;
+  // Radar arcs
+  const cx = canvas.width/2, apexY = canvas.height*0.72, radius = canvas.height*0.62;
+  const startAngle = -Math.PI*0.73, endAngle = -Math.PI*0.27;
   const green = "#6dff6d";
+  const polar = (r, a) => ({ x: cx + r*Math.cos(a), y: apexY + r*Math.sin(a) });
 
-  function polar(r, a) {
-    return { x: cx + r * Math.cos(a), y: apexY + r * Math.sin(a) };
-  }
+  ctx.strokeStyle = green; ctx.lineWidth = 8;
+  ctx.beginPath(); ctx.arc(cx, apexY, radius, startAngle+0.015, endAngle-0.015); ctx.stroke();
 
-  ctx.strokeStyle = green;
-  ctx.lineWidth = 8;
-  ctx.beginPath();
-  ctx.arc(cx, apexY, radius, startAngle + 0.015, endAngle - 0.015);
-  ctx.stroke();
-
-  ctx.strokeStyle = green;
-  ctx.lineWidth = 1;
-  const lowerRadius = radius - 10;
-  ctx.beginPath();
-  ctx.arc(cx, apexY, lowerRadius, startAngle + 0.015, endAngle - 0.015);
-  ctx.stroke();
+  ctx.strokeStyle = green; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(cx, apexY, radius-10, startAngle+0.015, endAngle-0.015); ctx.stroke();
 
   ctx.lineWidth = 3;
   [startAngle, endAngle].forEach(a => {
     const p = polar(radius, a);
-    ctx.beginPath();
-    ctx.moveTo(cx, apexY);
-    ctx.lineTo(p.x, p.y);
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx, apexY); ctx.lineTo(p.x, p.y); ctx.stroke();
   });
 
   ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(cx, apexY);
-  ctx.lineTo(cx, apexY - radius * 1.03);
-  ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx, apexY); ctx.lineTo(cx, apexY - radius*1.03); ctx.stroke();
 
   [-0.48, +0.48].forEach(t => {
     const a = startAngle + (endAngle - startAngle) * (t + 1) / 2;
-    const p = polar(radius * 1.03, a);
-    ctx.beginPath();
-    ctx.moveTo(cx, apexY);
-    ctx.lineTo(p.x, p.y);
-    ctx.stroke();
+    const p = polar(radius*1.03, a);
+    ctx.beginPath(); ctx.moveTo(cx, apexY); ctx.lineTo(p.x, p.y); ctx.stroke();
   });
 
-  ctx.setLineDash([15, 30]);
-  ctx.lineWidth = 1.5;
+  ctx.setLineDash([15, 30]); ctx.lineWidth = 1.5;
   [0.35, 0.55, 0.75].forEach(r => {
-    ctx.beginPath();
-    ctx.arc(cx, apexY, radius * r, startAngle + 0.03, endAngle - 0.03);
-    ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, apexY, radius*r, startAngle+0.03, endAngle-0.03); ctx.stroke();
   });
   ctx.setLineDash([]);
 
-  // CLICK DOTS
+  // Click dots
   for (let i = greenDots.length - 1; i >= 0; i--) {
-    const dot = greenDots[i];
-    dot.life -= 1.5;
-    if (dot.life > 0) {
-      ctx.fillStyle = `rgba(109, 255, 109, ${dot.life/100})`;
-      ctx.beginPath();
-      ctx.arc(dot.x, dot.y, 6, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = `rgba(109, 255, 109, ${dot.life/200})`;
-      ctx.beginPath();
-      ctx.arc(dot.x, dot.y, 10, 0, Math.PI * 2);
-      ctx.fill();
-    } else {
-      greenDots.splice(i, 1);
-    }
+    const d = greenDots[i];
+    d.life -= 1.5;
+    if (d.life > 0) {
+      ctx.fillStyle = `rgba(109, 255, 109, ${d.life/100})`;
+      ctx.beginPath(); ctx.arc(d.x, d.y, 6, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = `rgba(109, 255, 109, ${d.life/200})`;
+      ctx.beginPath(); ctx.arc(d.x, d.y, 10, 0, Math.PI*2); ctx.fill();
+    } else greenDots.splice(i, 1);
   }
 
   // Left buttons
   ctx.fillStyle = "#32ff32";
-  ctx.fillRect(cx - radius * 0.65, apexY + 20, 70, 40);
-  ctx.fillRect(cx - radius * 0.65, apexY + 80, 48, 40);
+  ctx.fillRect(cx - radius*0.65, apexY + 20, 70, 40);
+  ctx.fillRect(cx - radius*0.65, apexY + 80, 48, 40);
 
-  ctx.fillStyle = "#0b140b";
-  ctx.font = "28px monospace";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("1", cx - radius * 0.63 + 50, apexY + 44);
-  ctx.fillText("2", cx - radius * 0.63 + 24, apexY + 104);
+  ctx.fillStyle = "#0b140b"; ctx.font = "28px monospace";
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText("1", cx - radius*0.63 + 50, apexY + 44);
+  ctx.fillText("2", cx - radius*0.63 + 24, apexY + 104);
 
   // Version label under the "2" button
   ctx.fillStyle = "rgba(109, 255, 109, 0.75)";
   ctx.font = "14px monospace";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
-  ctx.fillText("V.02", cx - radius * 0.63, apexY + 140);
+  ctx.fillText(VERSION, cx - radius*0.63, apexY + 140);
 
   // Right labels
-  ctx.fillStyle = green;
-  ctx.font = "Bold 26px monospace";
-  ctx.textAlign = "left";
-  ["ATT", "SUS", "DEC"].forEach((t, i) => {
-    ctx.fillText(t, cx + radius * 0.55, apexY + 35 + i * 36);
-  });
+  ctx.fillStyle = green; ctx.font = "Bold 26px monospace"; ctx.textAlign = "left";
+  ["ATT","SUS","DEC"].forEach((t, i) => ctx.fillText(t, cx + radius*0.55, apexY + 35 + i*36));
 
-  // ===== GEO DOT =====
-  // NOTE: nothing else in this function may reset geoOpacity.
-  if (geoOpacity > 0.003 && isInRadarCone(geoFrozenDirection)) {
-    const dotRadius = 8;
-    const r = radius * geoDistance;
-    const canvasAngle = (geoFrozenDirection - 90) * (Math.PI / 180);
-    const dotX = cx + Math.cos(canvasAngle) * r;
-    const dotY = apexY + Math.sin(canvasAngle) * r;
+  // ===== GEO DOT (pure-math driven) =====
+  if (dot.visible && isInRadarCone(geoFrozenDirection)) {
+    const dotR = 8;
+    const r = radius * dot.distance;
+    const a = (geoFrozenDirection - 90) * (Math.PI/180);
+    const dx = cx + Math.cos(a) * r;
+    const dy = apexY + Math.sin(a) * r;
 
-    // Core dot
-    ctx.fillStyle = `rgba(50, 255, 50, ${geoOpacity})`;
-    ctx.beginPath();
-    ctx.arc(dotX, dotY, dotRadius, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.fillStyle = `rgba(50, 255, 50, ${dot.opacity})`;
+    ctx.beginPath(); ctx.arc(dx, dy, dotR, 0, Math.PI*2); ctx.fill();
 
-    // Direction line
-    const lineLength = 20;
-    const endX = dotX + Math.cos(canvasAngle) * lineLength;
-    const endY = dotY + Math.sin(canvasAngle) * lineLength;
-    ctx.strokeStyle = `rgba(50, 255, 50, ${geoOpacity})`;
+    const lx = dx + Math.cos(a) * 20, ly = dy + Math.sin(a) * 20;
+    ctx.strokeStyle = `rgba(50, 255, 50, ${dot.opacity})`;
     ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(dotX, dotY);
-    ctx.lineTo(endX, endY);
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(dx, dy); ctx.lineTo(lx, ly); ctx.stroke();
   }
 
   // ===== WARP EFFECT =====
-  if (!lastWarpTime) {
-    lastWarpTime = now;
-    warpsThisCycle = Math.floor(Math.random() * 4) + 1;
-  }
-
+  if (!lastWarpTime) { lastWarpTime = now; warpsThisCycle = Math.floor(Math.random()*4)+1; }
   if (!warpActive && warpsDone < warpsThisCycle && (now - lastWarpTime > 300000)) {
-    warpActive = true;
-    warpProgress = 0;
-    warpX = Math.random() * canvas.width;
-    warpY = Math.random() * canvas.height;
-    warpStrength = Math.random() * 80 + 40;
-    warpDuration = Math.random() * 60 + 40;
+    warpActive = true; warpProgress = 0;
+    warpX = Math.random()*canvas.width; warpY = Math.random()*canvas.height;
+    warpStrength = Math.random()*80 + 40; warpDuration = Math.random()*60 + 40;
   }
-
   if (warpActive) {
     warpProgress++;
     let intensity = 0;
-    if (warpProgress < warpDuration * 0.3) intensity = warpProgress / (warpDuration * 0.3);
-    else if (warpProgress < warpDuration * 0.7) intensity = 1;
-    else intensity = 1 - ((warpProgress - warpDuration * 0.7) / (warpDuration * 0.3));
-
-    const currentStrength = warpStrength * intensity;
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = imageData.data;
-    const tempData = ctx.createImageData(canvas.width, canvas.height);
-
+    if (warpProgress < warpDuration*0.3) intensity = warpProgress/(warpDuration*0.3);
+    else if (warpProgress < warpDuration*0.7) intensity = 1;
+    else intensity = 1 - ((warpProgress - warpDuration*0.7)/(warpDuration*0.3));
+    const cs = warpStrength * intensity;
+    const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = img.data;
+    const tmp = ctx.createImageData(canvas.width, canvas.height);
     for (let y = 0; y < canvas.height; y++) {
       for (let x = 0; x < canvas.width; x++) {
-        const dx = x - warpX;
-        const dy = y - warpY;
-        const distance = Math.sqrt(dx*dx + dy*dy);
-        const warpAmount = currentStrength / (distance + 10);
-        const srcX = Math.max(0, Math.min(canvas.width-1, x + dx * warpAmount * 0.015));
-        const srcY = Math.max(0, Math.min(canvas.height-1, y + dy * warpAmount * 0.015));
-        const srcIdx = (Math.floor(srcY) * canvas.width + Math.floor(srcX)) * 4;
-        const dstIdx = (y * canvas.width + x) * 4;
-
-        if (distance < 150) {
-          const colorDistort = 1 + (currentStrength / 300) * (1 - distance/150);
-          tempData.data[dstIdx]     = Math.min(255, data[srcIdx] * colorDistort);
-          tempData.data[dstIdx + 1] = Math.min(255, data[srcIdx+1] * (colorDistort * 0.7));
-          tempData.data[dstIdx + 2] = Math.min(255, data[srcIdx+2] * (colorDistort * 1.3));
-          tempData.data[dstIdx + 3] = data[srcIdx + 3];
+        const ddx = x - warpX, ddy = y - warpY;
+        const dist = Math.sqrt(ddx*ddx + ddy*ddy);
+        const wa = cs / (dist + 10);
+        const sx = Math.max(0, Math.min(canvas.width-1, x + ddx*wa*0.015));
+        const sy = Math.max(0, Math.min(canvas.height-1, y + ddy*wa*0.015));
+        const si = (Math.floor(sy)*canvas.width + Math.floor(sx))*4;
+        const di = (y*canvas.width + x)*4;
+        if (dist < 150) {
+          const cd = 1 + (cs/300)*(1 - dist/150);
+          tmp.data[di] = Math.min(255, data[si]*cd);
+          tmp.data[di+1] = Math.min(255, data[si+1]*(cd*0.7));
+          tmp.data[di+2] = Math.min(255, data[si+2]*(cd*1.3));
+          tmp.data[di+3] = data[si+3];
         } else {
-          tempData.data[dstIdx]     = data[srcIdx];
-          tempData.data[dstIdx + 1] = data[srcIdx + 1];
-          tempData.data[dstIdx + 2] = data[srcIdx + 2];
-          tempData.data[dstIdx + 3] = data[srcIdx + 3];
+          tmp.data[di] = data[si]; tmp.data[di+1] = data[si+1];
+          tmp.data[di+2] = data[si+2]; tmp.data[di+3] = data[si+3];
         }
       }
     }
-    ctx.putImageData(tempData, 0, 0);
-
-    ctx.fillStyle = `rgba(255, 50, 50, ${intensity * 0.6})`;
-    ctx.beginPath();
-    ctx.arc(warpX, warpY, 8 + intensity * 25, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.strokeStyle = `rgba(255, 100, 100, ${intensity * 0.4})`;
+    ctx.putImageData(tmp, 0, 0);
+    ctx.fillStyle = `rgba(255, 50, 50, ${intensity*0.6})`;
+    ctx.beginPath(); ctx.arc(warpX, warpY, 8 + intensity*25, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = `rgba(255, 100, 100, ${intensity*0.4})`;
     ctx.lineWidth = 1 + intensity;
     for (let i = 1; i <= 3; i++) {
-      const radius = i * 60 + intensity * 40;
-      ctx.beginPath();
-      ctx.arc(warpX, warpY, radius, 0, Math.PI * 2);
-      ctx.stroke();
+      ctx.beginPath(); ctx.arc(warpX, warpY, i*60 + intensity*40, 0, Math.PI*2); ctx.stroke();
     }
-
     if (warpProgress >= warpDuration) {
-      warpActive = false;
-      warpsDone++;
+      warpActive = false; warpsDone++;
       if (warpsDone >= warpsThisCycle) {
-        lastWarpTime = now;
-        warpsDone = 0;
-        warpsThisCycle = Math.floor(Math.random() * 4) + 1;
+        lastWarpTime = now; warpsDone = 0;
+        warpsThisCycle = Math.floor(Math.random()*4)+1;
       }
     }
   }
@@ -666,43 +475,25 @@ function drawRadarUI() {
     tempCtx.clearRect(0, 0, canvas.width, canvas.height);
     tempCtx.drawImage(canvas, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-
     rollOffset += rollSpeed;
-
     if (rollOffset >= canvas.height) {
-      rollOffset = 0;
-      rollCount++;
+      rollOffset = 0; rollCount++;
       if (rollCount >= 4) rollSpeed *= 0.7;
       if (rollCount >= maxRolls || rollSpeed < 1) {
-        isRolling = false;
-        rollOffset = 0;
-        rollCount = 0;
-        rollSpeed = 30;
+        isRolling = false; rollOffset = 0; rollCount = 0; rollSpeed = 30;
         lastRollTime = Date.now();
         ctx.drawImage(tempCanvas, 0, 0);
         return;
       }
     }
-
-    ctx.drawImage(tempCanvas,
-      0, canvas.height - rollOffset, canvas.width, rollOffset,
-      0, 0, canvas.width, rollOffset
-    );
-    ctx.drawImage(tempCanvas,
-      0, 0, canvas.width, canvas.height - rollOffset,
-      0, rollOffset, canvas.width, canvas.height - rollOffset
-    );
-
+    ctx.drawImage(tempCanvas, 0, canvas.height - rollOffset, canvas.width, rollOffset, 0, 0, canvas.width, rollOffset);
+    ctx.drawImage(tempCanvas, 0, 0, canvas.width, canvas.height - rollOffset, 0, rollOffset, canvas.width, canvas.height - rollOffset);
     ctx.strokeStyle = rollCount < 4 ? 'rgba(255, 50, 50, 0.6)' : 'rgba(120, 255, 120, 0.4)';
     ctx.lineWidth = 2;
     for (let i = 0; i < 3; i++) {
-      const lineY = (rollOffset + i * 50) % canvas.height;
-      ctx.beginPath();
-      ctx.moveTo(0, lineY);
-      ctx.lineTo(canvas.width, lineY);
-      ctx.stroke();
+      const ly = (rollOffset + i*50) % canvas.height;
+      ctx.beginPath(); ctx.moveTo(0, ly); ctx.lineTo(canvas.width, ly); ctx.stroke();
     }
-
     ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
     ctx.fillRect(0, rollOffset - 2, canvas.width, 4);
   }
