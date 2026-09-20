@@ -12,7 +12,7 @@
 
   :root {
     --bloom-tight:  0.95;   /* soft skirt around bright lines */
-    --bloom-wide:   0.65;   /* faint wide glow */
+    --bloom-wide:   0.85;   /* bigger halo */
   }
 
   .crt {
@@ -28,7 +28,7 @@
     display: block;
     background: radial-gradient(circle at 50% 70%, #0f2a12, #081008 100%);
     /* GAMMA BOOST: brighter + slightly punchier contrast */
-    filter: brightness(1.6) contrast(1.18);
+    filter: brightness(1.5) contrast(1.18);
   }
 
   /* Bloom layers: blurred copies of the radar, layered over it with 'lighten' blend */
@@ -40,7 +40,7 @@
   }
   .bloom { mix-blend-mode: lighten; }
   .bloom-tight { filter: blur(9px);  opacity: var(--bloom-tight); }
-  .bloom-wide  { filter: blur(24px) brightness(1.5); opacity: var(--bloom-wide); }
+  .bloom-wide  { filter: blur(24px) brightness(1.4); opacity: var(--bloom-wide); }
 
   /* Label layer sits ABOVE the bloom, so text + buttons are never blurred */
   .label-layer { z-index: 5; }
@@ -138,7 +138,7 @@ const enableButton = document.getElementById("enableButton");
 const countdownElement = document.getElementById("countdown");
 const backgroundAudio = document.getElementById('backgroundAudio');
 
-const VERSION_LABEL = "V.12";
+const VERSION_LABEL = "V.13";
 
 canvas.width = 1280;
 canvas.height = 720;
@@ -648,9 +648,9 @@ function drawRadarUI() {
   // NOTE: The "1"/"2" green blocks are NO LONGER drawn here — they're on the label layer
   // so they don't bloom. Everything else (arcs, rings, dot, static) still blooms.
 
-  // ===== GEO DOT =====
+  // ===== GEO DOT (bloomed!) =====
   if (geoOpacity > 0.003 && isInRadarCone(geoFrozenDirection)) {
-    const dotRadius = 8;
+    const dotRadius = 11;                              // bigger core = more bloom energy
     const r = radius * geoDistance;
     const canvasAngle = (geoFrozenDirection - 90) * (Math.PI / 180);
     const dotX = cx + Math.cos(canvasAngle) * r;
@@ -659,19 +659,37 @@ function drawRadarUI() {
     ctx.save();
     ctx.globalAlpha = Math.max(0, Math.min(1, geoOpacity));
 
-    ctx.shadowBlur = 18;
-    ctx.shadowColor = "rgb(50, 255, 50)";
+    // Big soft outer halo — the bloom picks this up hardest
+    ctx.globalAlpha = Math.max(0, Math.min(1, geoOpacity)) * 0.35;
+    ctx.fillStyle = "rgb(120, 255, 120)";
+    ctx.beginPath();
+    ctx.arc(dotX, dotY, dotRadius * 3, 0, Math.PI * 2);
+    ctx.fill();
 
-    ctx.fillStyle = "rgb(50, 255, 50)";
+    // Restore for solid core
+    ctx.globalAlpha = Math.max(0, Math.min(1, geoOpacity));
+
+    // Bright glow around the core
+    ctx.shadowBlur = 32;
+    ctx.shadowColor = "rgb(80, 255, 80)";
+
+    // Core dot — brighter than before so it feeds the bloom more
+    ctx.fillStyle = "rgb(80, 255, 80)";
     ctx.beginPath();
     ctx.arc(dotX, dotY, dotRadius, 0, Math.PI * 2);
     ctx.fill();
 
+    // Stacked inner core for extra punch
+    ctx.beginPath();
+    ctx.arc(dotX, dotY, dotRadius * 0.7, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Direction line — thicker so it blooms visibly too
     const lineLength = 20;
     const endX = dotX + Math.cos(canvasAngle) * lineLength;
     const endY = dotY + Math.sin(canvasAngle) * lineLength;
-    ctx.strokeStyle = "rgb(50, 255, 50)";
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = "rgb(80, 255, 80)";
+    ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(dotX, dotY);
     ctx.lineTo(endX, endY);
@@ -777,37 +795,4 @@ function drawRadarUI() {
         rollCount = 0;
         rollSpeed = 30;
         lastRollTime = Date.now();
-        ctx.drawImage(tempCanvas, 0, 0);
-        return;
-      }
-    }
-
-    ctx.drawImage(tempCanvas,
-      0, canvas.height - rollOffset, canvas.width, rollOffset,
-      0, 0, canvas.width, rollOffset
-    );
-    ctx.drawImage(tempCanvas,
-      0, 0, canvas.width, canvas.height - rollOffset,
-      0, rollOffset, canvas.width, canvas.height - rollOffset
-    );
-
-    ctx.strokeStyle = rollCount < 4 ? 'rgba(255, 50, 50, 0.6)' : 'rgba(120, 255, 120, 0.4)';
-    ctx.lineWidth = 2;
-    for (let i = 0; i < 3; i++) {
-      const lineY = (rollOffset + i * 50) % canvas.height;
-      ctx.beginPath();
-      ctx.moveTo(0, lineY);
-      ctx.lineTo(canvas.width, lineY);
-      ctx.stroke();
-    }
-
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-    ctx.fillRect(0, rollOffset - 2, canvas.width, 4);
-  }
-}
-
-initDeviceOrientation();
-
-</script>
-</body>
-</html>
+        ctx
