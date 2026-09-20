@@ -111,29 +111,23 @@ const greenDots = [];
 
 let compassDirection = 0;
 
-// ===== GEO DOT STEPPED APPROACH =====
-// distance is a value 0..1 where:
-//   1.0 = just outside/at radar edge (far)
-//   0.0 = at the apex (bottom of the V, closest)
-// The dot pops in at each step and holds there — no motion between steps.
-// After reaching the closest step, it smoothly recedes back outward and fades.
-
-// stepDistances: normalized distance from apex (1 = far edge, 0 = apex)
-// stepDelays:    ms to WAIT at each step before jumping to the next
+// ===== GEO DOT STEPPED APPROACH + RECEDE + FADE =====
+// distance: 1.0 = far edge, 0.0 = apex (closest)
 const STEP_DISTANCES = [0.95, 0.75, 0.55, 0.35, 0.15];
-const STEP_DELAYS_MS = [3000, 2000, 1500, 1000]; // gaps between the 5 steps (4 gaps)
+const STEP_DELAYS_MS = [3000, 2000, 1500, 1000];
 
-const INITIAL_DELAY_MS = 10000; // 10s after radar starts before first appear
-const RECEDE_MS        = 2500;  // smooth move back outward
-const FADE_MS          = 1500;  // fixed fade at the end
-const CYCLE_PAUSE_MS   = 4000;  // pause before next cycle
+const INITIAL_DELAY_MS = 10000; // 10s every cycle
+const RECEDE_MS        = 3000;
+const FADE_MS          = 1500;
+const CYCLE_PAUSE_MS   = 4000;
 
-// Phases: 'delay' -> 'stepping' (holds at each step) -> 'recede' -> 'fade' -> pause
+// Phase: 'delay' | 'stepping' | 'recede' | 'fade' | 'pause'
 let geoPhase = 'delay';
-let geoPhaseStart = 0;
-let geoStepIndex = 0;              // which step we're on (0..4)
-let geoStepStart = 0;              // when current step started
-let geoDistance = STEP_DISTANCES[0]; // current normalized distance
+let geoPhaseStart = 0;          // when the current phase began
+let geoFadeStart = 0;           // dedicated fade start timestamp (for a rock-solid fade)
+let geoStepIndex = 0;
+let geoStepStart = 0;
+let geoDistance = STEP_DISTANCES[0];
 let geoOpacity = 0;
 let geoFrozenDirection = 0;
 
@@ -147,60 +141,64 @@ function startGeoCycle(now) {
 }
 
 function updateGeoDot(now) {
-  const elapsed = now - geoPhaseStart;
-
   if (geoPhase === 'delay') {
     geoOpacity = 0;
-    if (elapsed >= INITIAL_DELAY_MS) {
+    if (now - geoPhaseStart >= INITIAL_DELAY_MS) {
       geoPhase = 'stepping';
       geoStepIndex = 0;
       geoStepStart = now;
       geoDistance = STEP_DISTANCES[0];
-      geoOpacity = 1;                             // instant appear at first step
-      geoFrozenDirection = compassDirection;      // lock direction once
+      geoOpacity = 1;
+      geoFrozenDirection = compassDirection;
     }
 
   } else if (geoPhase === 'stepping') {
     geoOpacity = 1;
-    const stepElapsed = now - geoStepStart;
-    const stepDelay = STEP_DELAYS_MS[geoStepIndex];
-
-    if (stepElapsed >= stepDelay) {
+    if (now - geoStepStart >= STEP_DELAYS_MS[geoStepIndex]) {
       geoStepIndex++;
       geoStepStart = now;
 
       if (geoStepIndex < STEP_DISTANCES.length) {
-        // INSTANT jump to next closer step (no interpolation)
-        geoDistance = STEP_DISTANCES[geoStepIndex];
+        geoDistance = STEP_DISTANCES[geoStepIndex]; // instant jump closer
       } else {
-        // Done stepping — begin smooth recede
+        // all steps done -> recede
         geoPhase = 'recede';
         geoPhaseStart = now;
       }
     }
 
   } else if (geoPhase === 'recede') {
-    // Smooth move from current distance back outward to 0.95, easing out (decelerating)
     const startDistance = STEP_DISTANCES[STEP_DISTANCES.length - 1]; // 0.15
-    const endDistance   = 0.95;
-    const t = Math.min(elapsed / RECEDE_MS, 1);
-    const eased = 1 - Math.pow(1 - t, 2.5); // fast start, slow end
+    const endDistance   = STEP_DISTANCES[0];                          // 0.95
+    const t = Math.min((now - geoPhaseStart) / RECEDE_MS, 1);
+    const eased = t < 0.5
+      ? 2 * t * t
+      : 1 - Math.pow(-2 * t + 2, 2) / 2;
     geoDistance = startDistance + (endDistance - startDistance) * eased;
     geoOpacity = 1;
 
     if (t >= 1) {
+      // Enter fade — capture the EXACT start time
       geoPhase = 'fade';
-      geoPhaseStart = now;
+      geoFadeStart = now;
     }
 
   } else if (geoPhase === 'fade') {
-    const t = Math.min(elapsed / FADE_MS, 1);
+    // Fade is measured from geoFadeStart — cannot be reset by anything else
+    const t = Math.min((now - geoFadeStart) / FADE_MS, 1);
     geoOpacity = 1 - t;
+
     if (t >= 1) {
+      // Stay invisible during pause, then restart cycle
+      geoPhase = 'pause';
+      geoPhaseStart = now;
       geoOpacity = 0;
-      if (elapsed >= FADE_MS + CYCLE_PAUSE_MS) {
-        startGeoCycle(now);
-      }
+    }
+
+  } else if (geoPhase === 'pause') {
+    geoOpacity = 0;
+    if (now - geoPhaseStart >= CYCLE_PAUSE_MS) {
+      startGeoCycle(now);
     }
   }
 }
@@ -557,23 +555,18 @@ function drawRadarUI() {
   });
 
   // ===== GEO DOT =====
-  // distance = 1 -> at radar's outer edge (far)
-  // distance = 0 -> at the apex (bottom of the V, closest)
-  // Dot size is FIXED. Opacity is 1 except during 'fade'.
   if (geoOpacity > 0.01 && isInRadarCone(geoFrozenDirection)) {
-    const dotRadius = 8;                            // fixed
-    const r = radius * geoDistance;                 // map 0..1 to apex..edge
+    const dotRadius = 8;
+    const r = radius * geoDistance;
     const canvasAngle = (geoFrozenDirection - 90) * (Math.PI / 180);
     const dotX = cx + Math.cos(canvasAngle) * r;
     const dotY = apexY + Math.sin(canvasAngle) * r;
 
-    // Core dot
     ctx.fillStyle = `rgba(50, 255, 50, ${geoOpacity})`;
     ctx.beginPath();
     ctx.arc(dotX, dotY, dotRadius, 0, Math.PI * 2);
     ctx.fill();
 
-    // Direction line
     const lineLength = 20;
     const endX = dotX + Math.cos(canvasAngle) * lineLength;
     const endY = dotY + Math.sin(canvasAngle) * lineLength;
