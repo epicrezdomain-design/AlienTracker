@@ -138,7 +138,7 @@ const enableButton = document.getElementById("enableButton");
 const countdownElement = document.getElementById("countdown");
 const backgroundAudio = document.getElementById('backgroundAudio');
 
-const VERSION_LABEL = "V.09";
+const VERSION_LABEL = "V.10";
 
 canvas.width = 1280;
 canvas.height = 720;
@@ -617,8 +617,9 @@ function drawRadarUI() {
     ctx.stroke();
   });
 
-  ctx.setLineDash([15, 30]);
-  ctx.lineWidth = 1.5;
+  // ===== THICKER DASHED RANGE RINGS =====
+  ctx.setLineDash([22, 26]);
+  ctx.lineWidth = 5;
   [0.35, 0.55, 0.75].forEach(r => {
     ctx.beginPath();
     ctx.arc(cx, apexY, radius * r, startAngle + 0.03, endAngle - 0.03);
