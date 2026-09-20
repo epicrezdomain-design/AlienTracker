@@ -11,8 +11,8 @@
   }
 
   :root {
-    --bloom-tight:  0.55;   /* soft skirt around bright lines (0 = off) */
-    --bloom-wide:   0.30;   /* faint wide glow (0 = off) */
+    --bloom-tight:  0.75;   /* soft skirt around bright lines */
+    --bloom-wide:   0.45;   /* faint wide glow */
   }
 
   .crt {
@@ -27,6 +27,8 @@
   canvas#radar {
     display: block;
     background: radial-gradient(circle at 50% 70%, #0f2a12, #081008 100%);
+    /* GAMMA BOOST: brighter + slightly punchier contrast */
+    filter: brightness(1.35) contrast(1.12);
   }
 
   /* Bloom layers: blurred copies of the radar, layered over it with 'lighten' blend */
@@ -40,7 +42,7 @@
   .bloom-tight { filter: blur(6px);  opacity: var(--bloom-tight); }
   .bloom-wide  { filter: blur(20px) brightness(1.15); opacity: var(--bloom-wide); }
 
-  /* Label layer sits ABOVE the bloom, so text is never blurred */
+  /* Label layer sits ABOVE the bloom, so text + buttons are never blurred */
   .label-layer { z-index: 5; }
 
   .permission-notice {
@@ -136,7 +138,7 @@ const enableButton = document.getElementById("enableButton");
 const countdownElement = document.getElementById("countdown");
 const backgroundAudio = document.getElementById('backgroundAudio');
 
-const VERSION_LABEL = "V.08";
+const VERSION_LABEL = "V.09";
 
 canvas.width = 1280;
 canvas.height = 720;
@@ -147,7 +149,7 @@ const bloomWideCanvas  = document.getElementById('bloomWide');
 const bloomTightCtx = bloomTightCanvas.getContext('2d');
 const bloomWideCtx  = bloomWideCanvas.getContext('2d');
 
-// Label layer: text drawn here appears ON TOP of the bloom, so it stays crisp.
+// Label layer: text + button blocks drawn here appear ON TOP of the bloom (no blur)
 const labelLayerCanvas = document.getElementById('labelLayer');
 const labelLayerCtx = labelLayerCanvas.getContext('2d');
 
@@ -417,7 +419,8 @@ function isInRadarCone(dir) {
   return (dir >= 315 || dir <= 45);
 }
 
-// Draw the text labels ON TOP of the bloom
+// Draw the "1"/"2" blocks, their numerals, the version label, and ATT/SUS/DEC
+// all ON TOP of the bloom so they stay crisp and flat (no glow on the blocks).
 function drawLabels() {
   const lcx = canvas.width / 2;
   const lApexY = canvas.height * 0.72;
@@ -425,7 +428,12 @@ function drawLabels() {
 
   labelLayerCtx.clearRect(0, 0, labelLayerCanvas.width, labelLayerCanvas.height);
 
-  // "1" and "2"
+  // --- "1" and "2" button BLOCKS (no bloom) ---
+  labelLayerCtx.fillStyle = "#32ff32";
+  labelLayerCtx.fillRect(lcx - lRadius * 0.65, lApexY + 20, 70, 40);
+  labelLayerCtx.fillRect(lcx - lRadius * 0.65, lApexY + 80, 48, 40);
+
+  // --- "1" and "2" numerals (dark, crisp) ---
   labelLayerCtx.fillStyle = "#0b140b";
   labelLayerCtx.font = "28px monospace";
   labelLayerCtx.textAlign = "center";
@@ -433,14 +441,14 @@ function drawLabels() {
   labelLayerCtx.fillText("1", lcx - lRadius * 0.63 + 50, lApexY + 44);
   labelLayerCtx.fillText("2", lcx - lRadius * 0.63 + 24, lApexY + 104);
 
-  // Version label
+  // --- Version label ---
   labelLayerCtx.fillStyle = "rgba(109, 255, 109, 0.85)";
   labelLayerCtx.font = "14px monospace";
   labelLayerCtx.textAlign = "left";
   labelLayerCtx.textBaseline = "middle";
   labelLayerCtx.fillText(VERSION_LABEL, lcx - lRadius * 0.63, lApexY + 140);
 
-  // ATT / SUS / DEC
+  // --- ATT / SUS / DEC (kept crisp too, no bloom) ---
   labelLayerCtx.fillStyle = "#6dff6d";
   labelLayerCtx.font = "Bold 26px monospace";
   labelLayerCtx.textAlign = "left";
@@ -450,13 +458,10 @@ function drawLabels() {
   });
 }
 
-// Update the two bloom canvases from the radar canvas
 function updateBloom() {
-  // tight bloom (small blur via CSS)
   bloomTightCtx.clearRect(0, 0, bloomTightCanvas.width, bloomTightCanvas.height);
   bloomTightCtx.drawImage(canvas, 0, 0);
 
-  // wide bloom (bigger blur via CSS) — a scaled-down copy is fine, the CSS blur hides it
   bloomWideCtx.clearRect(0, 0, bloomWideCanvas.width, bloomWideCanvas.height);
   bloomWideCtx.drawImage(canvas, 0, 0);
 }
@@ -639,10 +644,8 @@ function drawRadarUI() {
     }
   }
 
-  // Left buttons — drawn on the radar canvas so they bloom
-  ctx.fillStyle = "#32ff32";
-  ctx.fillRect(cx - radius * 0.65, apexY + 20, 70, 40);
-  ctx.fillRect(cx - radius * 0.65, apexY + 80, 48, 40);
+  // NOTE: The "1"/"2" green blocks are NO LONGER drawn here — they're on the label layer
+  // so they don't bloom. Everything else (arcs, rings, dot, static) still blooms.
 
   // ===== GEO DOT =====
   if (geoOpacity > 0.003 && isInRadarCone(geoFrozenDirection)) {
@@ -790,20 +793,4 @@ function drawRadarUI() {
     ctx.strokeStyle = rollCount < 4 ? 'rgba(255, 50, 50, 0.6)' : 'rgba(120, 255, 120, 0.4)';
     ctx.lineWidth = 2;
     for (let i = 0; i < 3; i++) {
-      const lineY = (rollOffset + i * 50) % canvas.height;
-      ctx.beginPath();
-      ctx.moveTo(0, lineY);
-      ctx.lineTo(canvas.width, lineY);
-      ctx.stroke();
-    }
-
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-    ctx.fillRect(0, rollOffset - 2, canvas.width, 4);
-  }
-}
-
-initDeviceOrientation();
-
-</script>
-</body>
-</html>
+      const lineY = (rollOffset + i * 50) %
