@@ -10,68 +10,62 @@
     height: 100%;
   }
 
-  canvas {
-    display: block;
+  /* ===== CRT LOOK - tweak these to taste ===== */
+  :root {
+    --bloom-tight:  0.75;
+    --bloom-wide:   0.35;
+    --fringe:       0.55;
+    --grain:        0.16;
+    --vignette:     0.45;
+  }
+
+  .crt {
+    position: relative;
+    width: 1280px;
+    height: 720px;
     margin: auto;
-    background: radial-gradient(circle at 50% 70%, #0f2a12, #081008 100%);
+    overflow: hidden;
+    isolation: isolate;
+    border-radius: 22px;
+    background: radial-gradient(ellipse 62% 78% at 50% 71%,
+      rgb(34,122,60) 0%, rgb(34,98,57) 22%, rgb(38,82,60) 48%, rgb(44,78,64) 72%, rgb(30,62,46) 100%);
   }
 
-  .permission-notice {
+  canvas#radar {
+    display: block;
+    filter: blur(1.1px);
+  }
+
+  .bloom, .grain, .label-layer, .crt-overlay {
     position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: rgba(0, 20, 0, 0.9);
-    color: #6dff6d;
-    padding: 30px;
-    border: 2px solid #6dff6d;
-    border-radius: 10px;
-    font-family: monospace;
-    text-align: center;
-    z-index: 100;
-    width: 80%;
-    max-width: 500px;
-    box-shadow: 0 0 30px rgba(109, 255, 109, 0.5);
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+  .bloom { mix-blend-mode: lighten; }
+  .bloom-tight { filter: blur(3px);                                   opacity: var(--bloom-tight); }
+  .bloom-wide  { filter: blur(16px) brightness(1.2);                  opacity: var(--bloom-wide);
+                 animation: crtFlicker 5s infinite; }
+  .bloom-fringe{ filter: hue-rotate(58deg) saturate(1.5) brightness(1.05);
+                 transform: translateX(-1.6px); opacity: var(--fringe); }
+
+  .grain { mix-blend-mode: soft-light; opacity: var(--grain); }
+
+  /* keeps the dark "1" / "2" and the green labels readable through the glow */
+  .label-layer { filter: blur(0.5px); }
+
+  .crt-overlay {
+    background: radial-gradient(ellipse at 50% 52%, rgba(0,0,0,0) 48%, rgba(0,0,0,var(--vignette)) 100%);
+    box-shadow: inset 0 0 70px rgba(0,0,0,0.45);
   }
 
-  .enable-button {
-    background: #0b140b;
-    border: 2px solid #6dff6d;
-    color: #6dff6d;
-    padding: 15px 30px;
-    border-radius: 5px;
-    cursor: pointer;
-    font-family: monospace;
-    font-size: 18px;
-    margin-top: 20px;
-    transition: all 0.3s;
-  }
-
-  .enable-button:hover {
-    background: #6dff6d;
-    color: #0b140b;
-    box-shadow: 0 0 20px rgba(109, 255, 109, 0.8);
-  }
-
-  #blackOverlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: #000000;
-    z-index: 99;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-  }
-
-  .countdown {
-    font-size: 24px;
-    color: #32ff32;
-    margin-top: 20px;
-    font-weight: bold;
-    min-height: 30px;
+  @keyframes crtFlicker {
+    0%, 100% { opacity: var(--bloom-wide); }
+    8%       { opacity: calc(var(--bloom-wide) * 0.88); }
+    12%      { opacity: var(--bloom-wide); }
+    47%      { opacity: calc(var(--bloom-wide) * 0.94); }
+    52%      { opacity: var(--bloom-wide); }
+    80%      { opacity: calc(var(--bloom-wide) * 0.90); }
   }
 </style>
 </head>
@@ -88,7 +82,15 @@
   </div>
 </div>
 
-<canvas id="radar"></canvas>
+<div class="crt" id="crt">
+  <canvas id="radar"></canvas>
+  <canvas id="bloomTight"  class="bloom bloom-tight"  width="640" height="360"></canvas>
+  <canvas id="bloomWide"   class="bloom bloom-wide"   width="320" height="180"></canvas>
+  <canvas id="bloomFringe" class="bloom bloom-fringe" width="1280" height="720"></canvas>
+  <canvas id="grainLayer"  class="grain" width="160" height="90"></canvas>
+  <canvas id="labelLayer"  class="label-layer" width="1280" height="720"></canvas>
+  <div class="crt-overlay"></div>
+</div>
 
 <audio id="backgroundAudio" loop preload="auto">
   <source src="https://github.com/epicrezdomain-design/AlienTracker/raw/main/TrackerAmbient.mp3" type="audio/mp3">
@@ -104,40 +106,129 @@ const enableButton = document.getElementById("enableButton");
 const countdownElement = document.getElementById("countdown");
 const backgroundAudio = document.getElementById('backgroundAudio');
 
-const VERSION_LABEL = "V.07";
+const VERSION_LABEL = "V.10";
 
 canvas.width = 1280;
 canvas.height = 720;
 
-const greenDots = [];
+// ===== CRT LOOK =====
+const bloomTightCanvas  = document.getElementById('bloomTight');
+const bloomWideCanvas   = document.getElementById('bloomWide');
+const bloomFringeCanvas = document.getElementById('bloomFringe');
+const bloomTightCtx  = bloomTightCanvas.getContext('2d');
+const bloomWideCtx   = bloomWideCanvas.getContext('2d');
+const bloomFringeCtx = bloomFringeCanvas.getContext('2d');
+[bloomTightCtx, bloomWideCtx, bloomFringeCtx].forEach(c => { c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high'; });
 
+// Label layer: redraws ALL text (1, 2, ATT, SUS, DEC, version) ABOVE the bloom so it stays crisp.
+(function drawButtonLabels() {
+  const lctx = document.getElementById('labelLayer').getContext('2d');
+  const lcx = canvas.width / 2;
+  const lApexY = canvas.height * 0.72;
+  const lRadius = canvas.height * 0.62;
+
+  // "1" and "2" on the buttons
+  lctx.fillStyle = "rgba(21, 111, 47, 0.9)";
+  lctx.font = "28px monospace";
+  lctx.textAlign = "center";
+  lctx.textBaseline = "middle";
+  lctx.fillText("1", lcx - lRadius * 0.63 + 50, lApexY + 44);
+  lctx.fillText("2", lcx - lRadius * 0.63 + 24, lApexY + 104);
+
+  // Version label
+  lctx.fillStyle = "rgba(120, 240, 170, 0.9)";
+  lctx.font = "14px monospace";
+  lctx.textAlign = "left";
+  lctx.textBaseline = "middle";
+  lctx.fillText(VERSION_LABEL, lcx - lRadius * 0.63, lApexY + 140);
+
+  // ATT / SUS / DEC — same transform as the canvas version so they align exactly
+  lctx.fillStyle = "#4dff88";
+  lctx.strokeStyle = "#4dff88";
+  lctx.lineWidth = 1.6;
+  lctx.font = "Bold 36px monospace";
+  lctx.textAlign = "left";
+  lctx.textBaseline = "middle";
+  ["ATT", "SUS", "DEC"].forEach((t, i) => {
+    lctx.save();
+    lctx.translate(lcx + lRadius * 0.55, lApexY + 35 + i * 42);
+    lctx.scale(0.74, 1);
+    lctx.fillText(t, 0, 0);
+    lctx.strokeText(t, 0, 0);
+    lctx.restore();
+  });
+})();
+
+// Grain
+(function drawGrain() {
+  const g = document.getElementById('grainLayer');
+  const gctx = g.getContext('2d');
+  const tiny = document.createElement('canvas');
+  tiny.width = 22; tiny.height = 12;
+  const tctx = tiny.getContext('2d');
+  for (let y = 0; y < tiny.height; y++) {
+    for (let x = 0; x < tiny.width; x++) {
+      const v = Math.floor(70 + Math.random() * 120);
+      tctx.fillStyle = `rgb(${v},${v},${v})`;
+      tctx.fillRect(x, y, 1, 1);
+    }
+  }
+  gctx.imageSmoothingEnabled = true;
+  gctx.imageSmoothingQuality = 'high';
+  gctx.drawImage(tiny, 0, 0, g.width, g.height);
+  const img = gctx.getImageData(0, 0, g.width, g.height);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const n = (Math.random() - 0.5) * 50;
+    img.data[i]     = Math.max(0, Math.min(255, img.data[i] + n));
+    img.data[i + 1] = Math.max(0, Math.min(255, img.data[i + 1] + n));
+    img.data[i + 2] = Math.max(0, Math.min(255, img.data[i + 2] + n));
+  }
+  gctx.putImageData(img, 0, 0);
+})();
+
+function squareAlpha(bctx, c, passes) {
+  bctx.globalCompositeOperation = 'destination-in';
+  for (let i = 0; i < passes; i++) bctx.drawImage(c, 0, 0);
+  bctx.globalCompositeOperation = 'source-over';
+}
+
+function updateBloom() {
+  bloomTightCtx.clearRect(0, 0, bloomTightCanvas.width, bloomTightCanvas.height);
+  bloomTightCtx.drawImage(canvas, 0, 0, bloomTightCanvas.width, bloomTightCanvas.height);
+  squareAlpha(bloomTightCtx, bloomTightCanvas, 1);
+
+  bloomFringeCtx.clearRect(0, 0, bloomFringeCanvas.width, bloomFringeCanvas.height);
+  bloomFringeCtx.drawImage(canvas, 0, 0);
+  squareAlpha(bloomFringeCtx, bloomFringeCanvas, 2);
+
+  bloomWideCtx.clearRect(0, 0, bloomWideCanvas.width, bloomWideCanvas.height);
+  bloomWideCtx.drawImage(bloomTightCanvas, 0, 0, bloomWideCanvas.width, bloomWideCanvas.height);
+}
+
+const greenDots = [];
 let compassDirection = 0;
 
-// ===== GEO DOT STEPPED APPROACH =====
-// Each cycle builds a fresh, slightly randomized path:
-//   approach (getting closer)  ->  linger at closest for ~7 bleeps  ->  leave (getting further)
+// ===== GEO DOT SEQUENCE =====
+const APPROACH_DISTANCES = [0.95, 0.75, 0.55, 0.35];
+const APPROACH_DELAYS_MS = [3000, 2000, 1500, 1000];
+const CLOSEST_DISTANCE   = 0.15;
+const LEAVE_DISTANCES    = [0.35, 0.55, 0.75, 0.95];
+const LEAVE_DELAYS_MS    = [1500, 2000, 3000, 1500];
 
-// Base path. Randomness is added around these each cycle.
-const APPROACH_DISTANCES = [0.95, 0.75, 0.55, 0.35];   // dots on the way in
-const APPROACH_DELAYS_MS = [3000, 2000, 1500, 1000];   // gap after each of those dots
-const CLOSEST_DISTANCE   = 0.15;                       // where the alien stops
-const LEAVE_DISTANCES    = [0.35, 0.55, 0.75, 0.95];   // dots on the way out
-const LEAVE_DELAYS_MS    = [1500, 2000, 3000, 1500];   // gap after each of those dots
+const DISTANCE_JITTER  = 0.06;
+const MIN_DISTANCE_GAP = 0.08;
+const DELAY_JITTER     = 0.25;
+const MIN_DELAY_MS     = 1000;
 
-const DISTANCE_JITTER  = 0.06;   // +/- random wobble on each distance (0.06 = 6% of radar)
-const MIN_DISTANCE_GAP = 0.08;   // dots always keep moving at least this much (so it never stalls or backtracks)
-const DELAY_JITTER     = 0.25;   // +/- 25% random on the gaps
-const MIN_DELAY_MS     = 1000;   // never go below this (dot needs ~900ms to fully fade)
-
-const CLOSEST_BLEEPS          = 7;      // how many bleeps at the closest point...
-const CLOSEST_BLEEPS_VARIANCE = 1;      // ...give or take (7 => 6 to 8)
-const CLOSEST_DELAY_MIN_MS    = 1000;   // gap between bleeps while lingering
+const CLOSEST_BLEEPS          = 7;
+const CLOSEST_BLEEPS_VARIANCE = 1;
+const CLOSEST_DELAY_MIN_MS    = 1000;
 const CLOSEST_DELAY_MAX_MS    = 1400;
-const CLOSEST_WOBBLE          = 0.01;   // tiny drift so the lingering dots aren't pixel-identical
+const CLOSEST_WOBBLE          = 0.01;
 
 const INITIAL_DELAY_MS = 10000;
-const STEP_HOLD_MS     = 200;    // dot stays fully bright this long when it appears at each step
-const STEP_FADE_MS     = 700;    // then fades out over this long (HOLD + FADE must be < shortest step delay)
+const STEP_HOLD_MS     = 200;
+const STEP_FADE_MS     = 700;
 const CYCLE_PAUSE_MS   = 4000;
 
 function rand(min, max) { return min + Math.random() * (max - min); }
@@ -147,10 +238,8 @@ function jitterDelay(ms) {
   return Math.max(MIN_DELAY_MS, Math.round(ms * (1 + rand(-DELAY_JITTER, DELAY_JITTER))));
 }
 
-// Randomize a list of distances but keep them strictly moving in one direction.
 function jitterDistances(base, closer) {
   const out = base.map(d => clamp(d + rand(-DISTANCE_JITTER, DISTANCE_JITTER), 0.22, 0.98));
-  // sort so it only ever goes one way, then enforce a minimum gap between dots
   out.sort((x, y) => closer ? y - x : x - y);
   for (let i = 1; i < out.length; i++) {
     out[i] = closer ? Math.min(out[i], out[i - 1] - MIN_DISTANCE_GAP)
@@ -159,15 +248,11 @@ function jitterDistances(base, closer) {
   return out.map(d => clamp(d, 0.22, 0.98));
 }
 
-// Returns an array of { dist, delay } - one entry per bleep for this cycle.
 function buildGeoSequence() {
   const seq = [];
-
-  // 1) Approach
   const inD = jitterDistances(APPROACH_DISTANCES, true);
   inD.forEach((d, i) => seq.push({ dist: d, delay: jitterDelay(APPROACH_DELAYS_MS[i]) }));
 
-  // 2) Linger at closest point for ~7 bleeps
   const bleeps = CLOSEST_BLEEPS + Math.floor(rand(-CLOSEST_BLEEPS_VARIANCE, CLOSEST_BLEEPS_VARIANCE + 1));
   for (let i = 0; i < bleeps; i++) {
     seq.push({
@@ -176,7 +261,6 @@ function buildGeoSequence() {
     });
   }
 
-  // 3) Leave
   const outD = jitterDistances(LEAVE_DISTANCES, false);
   outD.forEach((d, i) => seq.push({ dist: d, delay: jitterDelay(LEAVE_DELAYS_MS[i]) }));
 
@@ -184,8 +268,7 @@ function buildGeoSequence() {
 }
 
 let geoSequence = buildGeoSequence();
-
-let geoPhase = 'delay';        // 'delay' | 'stepping' | 'pause'
+let geoPhase = 'delay';
 let geoPhaseStart = 0;
 let geoFadeStart = 0;
 let geoStepIndex = 0;
@@ -195,7 +278,7 @@ let geoOpacity = 0;
 let geoFrozenDirection = 0;
 
 function startGeoCycle(now) {
-  geoSequence = buildGeoSequence();   // fresh random path every cycle
+  geoSequence = buildGeoSequence();
   geoPhase = 'delay';
   geoPhaseStart = now;
   geoStepIndex = 0;
@@ -216,9 +299,7 @@ function updateGeoDot(now) {
       geoOpacity = 1;
       geoFrozenDirection = compassDirection;
     }
-
   } else if (geoPhase === 'stepping') {
-    // Every step: dot appears bright, holds briefly, then fades out fast.
     const sinceStep = now - geoStepStart;
     if (sinceStep <= STEP_HOLD_MS) {
       geoOpacity = 1;
@@ -232,14 +313,13 @@ function updateGeoDot(now) {
       geoStepStart = now;
       if (geoStepIndex < geoSequence.length) {
         geoDistance = geoSequence[geoStepIndex].dist;
-        geoOpacity = 1;                // new dot pops in at its new spot
+        geoOpacity = 1;
       } else {
         geoPhase = 'pause';
         geoPhaseStart = now;
         geoOpacity = 0;
       }
     }
-
   } else if (geoPhase === 'pause') {
     geoOpacity = 0;
     if (now - geoPhaseStart >= CYCLE_PAUSE_MS) {
@@ -248,25 +328,11 @@ function updateGeoDot(now) {
   }
 }
 
-// ===== BORDER HIGHLIGHT =====
 let borderHighlights = { left: false, right: false, bottom: false, intensity: 0 };
 let deviceOrientation = { available: false, alpha: 0, beta: 0, gamma: 0 };
 
-// ===== ROLL EFFECT =====
-let isRolling = false;
-let rollOffset = 0;
-let rollSpeed = 30;
-let rollCount = 0;
-let maxRolls = 5;
-let lastRollTime = 0;
-
-// ===== WARP EFFECT =====
-let lastWarpTime = 0;
-let warpActive = false;
-let warpProgress = 0;
-let warpX = 0, warpY = 0, warpStrength = 0, warpDuration = 0;
-let warpsThisCycle = 0;
-let warpsDone = 0;
+let isRolling = false, rollOffset = 0, rollSpeed = 30, rollCount = 0, maxRolls = 5, lastRollTime = 0;
+let lastWarpTime = 0, warpActive = false, warpProgress = 0, warpX = 0, warpY = 0, warpStrength = 0, warpDuration = 0, warpsThisCycle = 0, warpsDone = 0;
 
 const tempCanvas = document.createElement('canvas');
 tempCanvas.width = canvas.width;
@@ -414,6 +480,7 @@ function drawEverything() {
     rollSpeed = 30;
   }
   drawRadarUI();
+  updateBloom();
   requestAnimationFrame(drawEverything);
 }
 
@@ -424,7 +491,7 @@ function drawRadarUI() {
   updateGeoDot(now);
 
   // Scanlines
-  ctx.fillStyle = 'rgba(0,0,0,2)';
+  ctx.fillStyle = 'rgba(0,0,0,0.16)';
   for (let y = 0; y < canvas.height; y += 5) {
     ctx.fillRect(0, y, canvas.width, .8);
   }
@@ -445,7 +512,7 @@ function drawRadarUI() {
     }
   }
 
-  // Vertical jitter (skip during fade so it doesn't smear the fading dot)
+  // Vertical jitter
   const dotIsFading = (geoPhase === 'stepping' && geoOpacity < 1);
   if (!dotIsFading && Math.random() > 0.97) {
     const jitterAmount = Math.random() * 4 - 2;
@@ -453,12 +520,14 @@ function drawRadarUI() {
     ctx.putImageData(imageData, 0, jitterAmount);
   }
 
-  // GAPPED CIRCLE
+  // GAPPED CIRCLE — ring glow now GREENER
   const circleX = canvas.width / 2;
   const circleY = canvas.height * 0.71;
   const circleRadius = 110;
   const lineWidth = 45;
   const visibleSegments = [[232, 315], [45, 130], [137, 225]];
+  const RING_BLUR = 10;
+  const RING_OFF  = 5000;
 
   visibleSegments.forEach(([startDeg, endDeg], index) => {
     const startRad = ((startDeg - 90) * Math.PI / 180);
@@ -471,20 +540,24 @@ function drawRadarUI() {
     else if (index === 1 && borderHighlights.right) { isHighlighted = true; highlightIntensity = borderHighlights.intensity; }
     else if (index === 2 && borderHighlights.bottom) { isHighlighted = true; highlightIntensity = borderHighlights.intensity; }
 
+    ctx.save();
+    ctx.translate(RING_OFF, 0);
+    ctx.shadowOffsetX = -RING_OFF;
+    ctx.shadowOffsetY = 0;
+    ctx.strokeStyle = "#000";
+
     if (isHighlighted && highlightIntensity > 0) {
-      const baseR = 109, baseG = 255, baseB = 109;
-      const targetR = 50, targetG = 255, targetB = 50;
-      const r = Math.round(baseR + (targetR - baseR) * highlightIntensity);
-      const g = Math.round(baseG + (targetG - baseG) * highlightIntensity);
-      const b = Math.round(baseB + (targetB - baseB) * highlightIntensity);
+      // GREENER highlight: pull toward a bright pure green instead of mint
+      const r = Math.round(40 + (60 - 40) * highlightIntensity);
+      const g = Math.round(230 + (255 - 230) * highlightIntensity);
+      const b = Math.round(90 + (120 - 90) * highlightIntensity);
       ctx.lineWidth = lineWidth + (10 * highlightIntensity);
-      ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${0.3 + 0.7 * highlightIntensity})`;
-      ctx.shadowBlur = 20 * highlightIntensity;
-      ctx.shadowColor = `rgba(${r}, ${g}, ${b}, ${0.7 * highlightIntensity})`;
+      ctx.shadowBlur = RING_BLUR;
+      ctx.shadowColor = `rgba(${r}, ${g}, ${b}, ${0.20 + 0.75 * highlightIntensity})`;
     } else {
       ctx.lineWidth = lineWidth;
-      ctx.strokeStyle = "rgba(109, 255, 109, 0.3)";
-      ctx.shadowBlur = 0;
+      ctx.shadowBlur = RING_BLUR;
+      ctx.shadowColor = "rgba(50, 225, 90, 0.22)";   // greener base ring
     }
 
     ctx.lineCap = 'butt';
@@ -501,35 +574,43 @@ function drawRadarUI() {
       ctx.arc(circleX, circleY, circleRadius, startRad, endRad);
       ctx.stroke();
     }
-    ctx.shadowBlur = 0;
+    ctx.restore();
   });
 
-  // RADAR ARCS
+  // RADAR ARCS — shifted from mint/cyan to pure greens
   const cx = canvas.width / 2;
   const apexY = canvas.height * 0.72;
   const radius = canvas.height * 0.62;
   const startAngle = -Math.PI * 0.73;
   const endAngle   = -Math.PI * 0.27;
-  const green = "#6dff6d";
+
+  const ARC_COLOR   = "#4dff88";   // was mint #99e7d4 — now bright green
+  const ARC2_COLOR  = "#3df07a";   // was cyan-mint #90e3c6
+  const EDGE_COLOR  = "#45f57e";   // was #93ecb5
+  const LINE_COLOR  = "#3ee06e";   // was #93e2b0
+  const green = "#4dff88";         // labels
 
   function polar(r, a) {
     return { x: cx + r * Math.cos(a), y: apexY + r * Math.sin(a) };
   }
 
-  ctx.strokeStyle = green;
-  ctx.lineWidth = 8;
+  ctx.lineCap = 'butt';
+
+  ctx.strokeStyle = ARC_COLOR;
+  ctx.lineWidth = 15;
   ctx.beginPath();
   ctx.arc(cx, apexY, radius, startAngle + 0.015, endAngle - 0.015);
   ctx.stroke();
 
-  ctx.strokeStyle = green;
-  ctx.lineWidth = 1;
-  const lowerRadius = radius - 10;
+  ctx.strokeStyle = ARC2_COLOR;
+  ctx.lineWidth = 7;
+  const lowerRadius = radius - 13;
   ctx.beginPath();
   ctx.arc(cx, apexY, lowerRadius, startAngle + 0.015, endAngle - 0.015);
   ctx.stroke();
 
-  ctx.lineWidth = 3;
+  ctx.strokeStyle = EDGE_COLOR;
+  ctx.lineWidth = 8;
   [startAngle, endAngle].forEach(a => {
     const p = polar(radius, a);
     ctx.beginPath();
@@ -538,29 +619,33 @@ function drawRadarUI() {
     ctx.stroke();
   });
 
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = LINE_COLOR;
+  ctx.lineWidth = 6;
   ctx.beginPath();
   ctx.moveTo(cx, apexY);
-  ctx.lineTo(cx, apexY - radius * 1.03);
+  ctx.lineTo(cx, apexY - radius * 1.035);
   ctx.stroke();
 
   [-0.48, +0.48].forEach(t => {
     const a = startAngle + (endAngle - startAngle) * (t + 1) / 2;
-    const p = polar(radius * 1.03, a);
+    const p = polar(radius * 1.035, a);
     ctx.beginPath();
     ctx.moveTo(cx, apexY);
     ctx.lineTo(p.x, p.y);
     ctx.stroke();
   });
 
-  ctx.setLineDash([15, 30]);
-  ctx.lineWidth = 1.5;
+  ctx.lineCap = 'round';
+  ctx.setLineDash([14, 26]);
+  ctx.lineWidth = 6.5;
+  ctx.strokeStyle = LINE_COLOR;
   [0.35, 0.55, 0.75].forEach(r => {
     ctx.beginPath();
     ctx.arc(cx, apexY, radius * r, startAngle + 0.03, endAngle - 0.03);
     ctx.stroke();
   });
   ctx.setLineDash([]);
+  ctx.lineCap = 'butt';
 
   // CLICK DOTS
   for (let i = greenDots.length - 1; i >= 0; i--) {
@@ -580,35 +665,56 @@ function drawRadarUI() {
     }
   }
 
-  // Left buttons
-  ctx.fillStyle = "#32ff32";
-  ctx.fillRect(cx - radius * 0.65, apexY + 20, 70, 40);
-  ctx.fillRect(cx - radius * 0.65, apexY + 80, 48, 40);
+  // Left buttons — greener, more saturated green
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+  ctx.fillStyle = "#3dff75";
+  roundRect(cx - radius * 0.65, apexY + 20, 70, 40, 6); ctx.fill();
+  roundRect(cx - radius * 0.65, apexY + 80, 48, 40, 6); ctx.fill();
 
-  ctx.fillStyle = "#0b140b";
+  // "1" and "2" — dark, will be redrawn above glow by labelLayer
+  ctx.fillStyle = "#0b3a1a";
   ctx.font = "28px monospace";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText("1", cx - radius * 0.63 + 50, apexY + 44);
   ctx.fillText("2", cx - radius * 0.63 + 24, apexY + 104);
 
-  // Version label under the "2" button
-  ctx.fillStyle = "rgba(109, 255, 109, 0.75)";
+  // Version — also redrawn above glow
+  ctx.fillStyle = "rgba(120, 240, 170, 0.8)";
   ctx.font = "14px monospace";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   ctx.fillText(VERSION_LABEL, cx - radius * 0.63, apexY + 140);
 
-  // Right labels
+  // ATT / SUS / DEC — greener, also redrawn above the glow by labelLayer
   ctx.fillStyle = green;
-  ctx.font = "Bold 26px monospace";
+  ctx.strokeStyle = green;
+  ctx.lineWidth = 1.6;
+  ctx.font = "Bold 36px monospace";
   ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
   ["ATT", "SUS", "DEC"].forEach((t, i) => {
-    ctx.fillText(t, cx + radius * 0.55, apexY + 35 + i * 36);
+    ctx.save();
+    ctx.translate(cx + radius * 0.55, apexY + 35 + i * 42);
+    ctx.scale(0.74, 1);
+    ctx.fillText(t, 0, 0);
+    ctx.strokeText(t, 0, 0);
+    ctx.restore();
   });
 
   // ===== GEO DOT =====
-  // Drawn with globalAlpha so the dot, glow and line all fade together.
   if (geoOpacity > 0.003 && isInRadarCone(geoFrozenDirection)) {
     const dotRadius = 8;
     const r = radius * geoDistance;
@@ -619,17 +725,14 @@ function drawRadarUI() {
     ctx.save();
     ctx.globalAlpha = Math.max(0, Math.min(1, geoOpacity));
 
-    // Soft glow
     ctx.shadowBlur = 18;
     ctx.shadowColor = "rgb(50, 255, 50)";
 
-    // Core dot
     ctx.fillStyle = "rgb(50, 255, 50)";
     ctx.beginPath();
     ctx.arc(dotX, dotY, dotRadius, 0, Math.PI * 2);
     ctx.fill();
 
-    // Direction line
     const lineLength = 20;
     const endX = dotX + Math.cos(canvasAngle) * lineLength;
     const endY = dotY + Math.sin(canvasAngle) * lineLength;
@@ -645,132 +748,4 @@ function drawRadarUI() {
 
   // ===== WARP EFFECT =====
   if (!lastWarpTime) {
-    lastWarpTime = now;
-    warpsThisCycle = Math.floor(Math.random() * 4) + 1;
-  }
-
-  if (!warpActive && warpsDone < warpsThisCycle && (now - lastWarpTime > 300000)) {
-    warpActive = true;
-    warpProgress = 0;
-    warpX = Math.random() * canvas.width;
-    warpY = Math.random() * canvas.height;
-    warpStrength = Math.random() * 80 + 40;
-    warpDuration = Math.random() * 60 + 40;
-  }
-
-  if (warpActive) {
-    warpProgress++;
-    let intensity = 0;
-    if (warpProgress < warpDuration * 0.3) intensity = warpProgress / (warpDuration * 0.3);
-    else if (warpProgress < warpDuration * 0.7) intensity = 1;
-    else intensity = 1 - ((warpProgress - warpDuration * 0.7) / (warpDuration * 0.3));
-
-    const currentStrength = warpStrength * intensity;
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = imageData.data;
-    const tempData = ctx.createImageData(canvas.width, canvas.height);
-
-    for (let y = 0; y < canvas.height; y++) {
-      for (let x = 0; x < canvas.width; x++) {
-        const dx = x - warpX;
-        const dy = y - warpY;
-        const distance = Math.sqrt(dx*dx + dy*dy);
-        const warpAmount = currentStrength / (distance + 10);
-        const srcX = Math.max(0, Math.min(canvas.width-1, x + dx * warpAmount * 0.015));
-        const srcY = Math.max(0, Math.min(canvas.height-1, y + dy * warpAmount * 0.015));
-        const srcIdx = (Math.floor(srcY) * canvas.width + Math.floor(srcX)) * 4;
-        const dstIdx = (y * canvas.width + x) * 4;
-
-        if (distance < 150) {
-          const colorDistort = 1 + (currentStrength / 300) * (1 - distance/150);
-          tempData.data[dstIdx]     = Math.min(255, data[srcIdx] * colorDistort);
-          tempData.data[dstIdx + 1] = Math.min(255, data[srcIdx+1] * (colorDistort * 0.7));
-          tempData.data[dstIdx + 2] = Math.min(255, data[srcIdx+2] * (colorDistort * 1.3));
-          tempData.data[dstIdx + 3] = data[srcIdx + 3];
-        } else {
-          tempData.data[dstIdx]     = data[srcIdx];
-          tempData.data[dstIdx + 1] = data[srcIdx + 1];
-          tempData.data[dstIdx + 2] = data[srcIdx + 2];
-          tempData.data[dstIdx + 3] = data[srcIdx + 3];
-        }
-      }
-    }
-    ctx.putImageData(tempData, 0, 0);
-
-    ctx.fillStyle = `rgba(255, 50, 50, ${intensity * 0.6})`;
-    ctx.beginPath();
-    ctx.arc(warpX, warpY, 8 + intensity * 25, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.strokeStyle = `rgba(255, 100, 100, ${intensity * 0.4})`;
-    ctx.lineWidth = 1 + intensity;
-    for (let i = 1; i <= 3; i++) {
-      const radius = i * 60 + intensity * 40;
-      ctx.beginPath();
-      ctx.arc(warpX, warpY, radius, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-
-    if (warpProgress >= warpDuration) {
-      warpActive = false;
-      warpsDone++;
-      if (warpsDone >= warpsThisCycle) {
-        lastWarpTime = now;
-        warpsDone = 0;
-        warpsThisCycle = Math.floor(Math.random() * 4) + 1;
-      }
-    }
-  }
-
-  // ===== ROLL EFFECT =====
-  if (isRolling) {
-    tempCtx.clearRect(0, 0, canvas.width, canvas.height);
-    tempCtx.drawImage(canvas, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    rollOffset += rollSpeed;
-
-    if (rollOffset >= canvas.height) {
-      rollOffset = 0;
-      rollCount++;
-      if (rollCount >= 4) rollSpeed *= 0.7;
-      if (rollCount >= maxRolls || rollSpeed < 1) {
-        isRolling = false;
-        rollOffset = 0;
-        rollCount = 0;
-        rollSpeed = 30;
-        lastRollTime = Date.now();
-        ctx.drawImage(tempCanvas, 0, 0);
-        return;
-      }
-    }
-
-    ctx.drawImage(tempCanvas,
-      0, canvas.height - rollOffset, canvas.width, rollOffset,
-      0, 0, canvas.width, rollOffset
-    );
-    ctx.drawImage(tempCanvas,
-      0, 0, canvas.width, canvas.height - rollOffset,
-      0, rollOffset, canvas.width, canvas.height - rollOffset
-    );
-
-    ctx.strokeStyle = rollCount < 4 ? 'rgba(255, 50, 50, 0.6)' : 'rgba(120, 255, 120, 0.4)';
-    ctx.lineWidth = 2;
-    for (let i = 0; i < 3; i++) {
-      const lineY = (rollOffset + i * 50) % canvas.height;
-      ctx.beginPath();
-      ctx.moveTo(0, lineY);
-      ctx.lineTo(canvas.width, lineY);
-      ctx.stroke();
-    }
-
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-    ctx.fillRect(0, rollOffset - 2, canvas.width, 4);
-  }
-}
-
-initDeviceOrientation();
-
-</script>
-</body>
-</html>
+   
