@@ -117,7 +117,7 @@ const STEP_DELAYS_MS = [3000, 2000, 1500, 1000];
 
 const INITIAL_DELAY_MS = 10000;
 const RECEDE_MS        = 3000;
-const FADE_MS          = 1500;
+const FADE_MS          = 3000;   // <<< long, obvious fade
 const CYCLE_PAUSE_MS   = 4000;
 
 let geoPhase = 'delay';        // 'delay' | 'stepping' | 'recede' | 'fade' | 'pause'
@@ -136,6 +136,7 @@ function startGeoCycle(now) {
   geoStepStart = 0;
   geoDistance = STEP_DISTANCES[0];
   geoOpacity = 0;
+  geoFadeStart = 0;
 }
 
 function updateGeoDot(now) {
@@ -173,10 +174,12 @@ function updateGeoDot(now) {
 
     if (t >= 1) {
       geoPhase = 'fade';
-      geoFadeStart = now;
+      geoFadeStart = now;      // exact moment the fade begins
     }
 
   } else if (geoPhase === 'fade') {
+    // self-heal if geoFadeStart somehow got zeroed
+    if (!geoFadeStart) geoFadeStart = now;
     const t = Math.min((now - geoFadeStart) / FADE_MS, 1);
     geoOpacity = 1 - t;
     if (t >= 1) {
@@ -390,7 +393,7 @@ function drawRadarUI() {
     }
   }
 
-  // Vertical jitter — skip while the dot is mid-fade so it doesn't smear the dot
+  // Vertical jitter (skip during fade so it doesn't smear the fading dot)
   const dotIsFading = (geoPhase === 'fade');
   if (!dotIsFading && Math.random() > 0.97) {
     const jitterAmount = Math.random() * 4 - 2;
@@ -538,11 +541,11 @@ function drawRadarUI() {
   ctx.fillText("2", cx - radius * 0.63 + 24, apexY + 104);
 
   // Version label under the "2" button
-  ctx.fillStyle = "rgba(109, 255, 109, 0.7)";
+  ctx.fillStyle = "rgba(109, 255, 109, 0.75)";
   ctx.font = "14px monospace";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
-  ctx.fillText("V.01", cx - radius * 0.63, apexY + 140);
+  ctx.fillText("V.02", cx - radius * 0.63, apexY + 140);
 
   // Right labels
   ctx.fillStyle = green;
@@ -553,8 +556,8 @@ function drawRadarUI() {
   });
 
   // ===== GEO DOT =====
-  // Only skip drawing when opacity is truly ~0
-  if (geoOpacity > 0.005 && isInRadarCone(geoFrozenDirection)) {
+  // NOTE: nothing else in this function may reset geoOpacity.
+  if (geoOpacity > 0.003 && isInRadarCone(geoFrozenDirection)) {
     const dotRadius = 8;
     const r = radius * geoDistance;
     const canvasAngle = (geoFrozenDirection - 90) * (Math.PI / 180);
