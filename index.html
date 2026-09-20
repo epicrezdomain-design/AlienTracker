@@ -10,7 +10,6 @@
     height: 100%;
   }
 
-  /* ===== CRT LOOK - tweak these to taste ===== */
   :root {
     --bloom-tight:  0.75;
     --bloom-wide:   0.35;
@@ -50,8 +49,6 @@
                  transform: translateX(-1.6px); opacity: var(--fringe); }
 
   .grain { mix-blend-mode: soft-light; opacity: var(--grain); }
-
-  /* keeps the dark "1" / "2" and the green labels readable through the glow */
   .label-layer { filter: blur(0.5px); }
 
   .crt-overlay {
@@ -127,22 +124,19 @@ const bloomFringeCtx = bloomFringeCanvas.getContext('2d');
   const lApexY = canvas.height * 0.72;
   const lRadius = canvas.height * 0.62;
 
-  // "1" and "2" on the buttons
-  lctx.fillStyle = "rgba(21, 111, 47, 0.9)";
+  lctx.fillStyle = "rgba(11, 58, 26, 0.95)";
   lctx.font = "28px monospace";
   lctx.textAlign = "center";
   lctx.textBaseline = "middle";
   lctx.fillText("1", lcx - lRadius * 0.63 + 50, lApexY + 44);
   lctx.fillText("2", lcx - lRadius * 0.63 + 24, lApexY + 104);
 
-  // Version label
-  lctx.fillStyle = "rgba(120, 240, 170, 0.9)";
+  lctx.fillStyle = "rgba(120, 240, 170, 0.95)";
   lctx.font = "14px monospace";
   lctx.textAlign = "left";
   lctx.textBaseline = "middle";
   lctx.fillText(VERSION_LABEL, lcx - lRadius * 0.63, lApexY + 140);
 
-  // ATT / SUS / DEC — same transform as the canvas version so they align exactly
   lctx.fillStyle = "#4dff88";
   lctx.strokeStyle = "#4dff88";
   lctx.lineWidth = 1.6;
@@ -547,7 +541,6 @@ function drawRadarUI() {
     ctx.strokeStyle = "#000";
 
     if (isHighlighted && highlightIntensity > 0) {
-      // GREENER highlight: pull toward a bright pure green instead of mint
       const r = Math.round(40 + (60 - 40) * highlightIntensity);
       const g = Math.round(230 + (255 - 230) * highlightIntensity);
       const b = Math.round(90 + (120 - 90) * highlightIntensity);
@@ -557,7 +550,7 @@ function drawRadarUI() {
     } else {
       ctx.lineWidth = lineWidth;
       ctx.shadowBlur = RING_BLUR;
-      ctx.shadowColor = "rgba(50, 225, 90, 0.22)";   // greener base ring
+      ctx.shadowColor = "rgba(50, 225, 90, 0.22)";
     }
 
     ctx.lineCap = 'butt';
@@ -577,18 +570,18 @@ function drawRadarUI() {
     ctx.restore();
   });
 
-  // RADAR ARCS — shifted from mint/cyan to pure greens
+  // RADAR ARCS — greener palette
   const cx = canvas.width / 2;
   const apexY = canvas.height * 0.72;
   const radius = canvas.height * 0.62;
   const startAngle = -Math.PI * 0.73;
   const endAngle   = -Math.PI * 0.27;
 
-  const ARC_COLOR   = "#4dff88";   // was mint #99e7d4 — now bright green
-  const ARC2_COLOR  = "#3df07a";   // was cyan-mint #90e3c6
-  const EDGE_COLOR  = "#45f57e";   // was #93ecb5
-  const LINE_COLOR  = "#3ee06e";   // was #93e2b0
-  const green = "#4dff88";         // labels
+  const ARC_COLOR   = "#4dff88";
+  const ARC2_COLOR  = "#3df07a";
+  const EDGE_COLOR  = "#45f57e";
+  const LINE_COLOR  = "#3ee06e";
+  const green = "#4dff88";
 
   function polar(r, a) {
     return { x: cx + r * Math.cos(a), y: apexY + r * Math.sin(a) };
@@ -665,7 +658,7 @@ function drawRadarUI() {
     }
   }
 
-  // Left buttons — greener, more saturated green
+  // Left buttons
   function roundRect(x, y, w, h, r) {
     ctx.beginPath();
     ctx.moveTo(x + r, y);
@@ -683,7 +676,7 @@ function drawRadarUI() {
   roundRect(cx - radius * 0.65, apexY + 20, 70, 40, 6); ctx.fill();
   roundRect(cx - radius * 0.65, apexY + 80, 48, 40, 6); ctx.fill();
 
-  // "1" and "2" — dark, will be redrawn above glow by labelLayer
+  // "1" and "2" — drawn here too (labelLayer redraws them crisply above the bloom)
   ctx.fillStyle = "#0b3a1a";
   ctx.font = "28px monospace";
   ctx.textAlign = "center";
@@ -691,14 +684,14 @@ function drawRadarUI() {
   ctx.fillText("1", cx - radius * 0.63 + 50, apexY + 44);
   ctx.fillText("2", cx - radius * 0.63 + 24, apexY + 104);
 
-  // Version — also redrawn above glow
+  // Version
   ctx.fillStyle = "rgba(120, 240, 170, 0.8)";
   ctx.font = "14px monospace";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   ctx.fillText(VERSION_LABEL, cx - radius * 0.63, apexY + 140);
 
-  // ATT / SUS / DEC — greener, also redrawn above the glow by labelLayer
+  // ATT / SUS / DEC
   ctx.fillStyle = green;
   ctx.strokeStyle = green;
   ctx.lineWidth = 1.6;
@@ -748,4 +741,35 @@ function drawRadarUI() {
 
   // ===== WARP EFFECT =====
   if (!lastWarpTime) {
-   
+    lastWarpTime = now;
+    warpsThisCycle = Math.floor(Math.random() * 4) + 1;
+  }
+
+  if (!warpActive && warpsDone < warpsThisCycle && (now - lastWarpTime > 300000)) {
+    warpActive = true;
+    warpProgress = 0;
+    warpX = Math.random() * canvas.width;
+    warpY = Math.random() * canvas.height;
+    warpStrength = Math.random() * 80 + 40;
+    warpDuration = Math.random() * 60 + 40;
+  }
+
+  if (warpActive) {
+    warpProgress++;
+    let intensity = 0;
+    if (warpProgress < warpDuration * 0.3) intensity = warpProgress / (warpDuration * 0.3);
+    else if (warpProgress < warpDuration * 0.7) intensity = 1;
+    else intensity = 1 - ((warpProgress - warpDuration * 0.7) / (warpDuration * 0.3));
+
+    const currentStrength = warpStrength * intensity;
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+    const tempData = ctx.createImageData(canvas.width, canvas.height);
+
+    for (let y = 0; y < canvas.height; y++) {
+      for (let x = 0; x < canvas.width; x++) {
+        const dx = x - warpX;
+        const dy = y - warpY;
+        const distance = Math.sqrt(dx*dx + dy*dy);
+        const warpAmount = currentStrength / (distance + 10);
+        const srcX = Math.max(0,
