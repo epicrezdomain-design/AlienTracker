@@ -129,6 +129,14 @@
   Your browser does not support the audio element.
 </audio>
 
+<!-- ===== BLINK SOUND EFFECT =====
+     Rename your mp3 to blip.mp3 and put it next to this HTML file,
+     or change the src below to match your file. -->
+<audio id="blipSound" preload="auto">
+  <source src="blip.mp3" type="audio/mp3">
+  Your browser does not support the audio element.
+</audio>
+
 <script>
 
 const canvas = document.getElementById("radar");
@@ -137,8 +145,9 @@ const blackOverlay = document.getElementById("blackOverlay");
 const enableButton = document.getElementById("enableButton");
 const countdownElement = document.getElementById("countdown");
 const backgroundAudio = document.getElementById('backgroundAudio');
+const blipSound = document.getElementById('blipSound');
 
-const VERSION_LABEL = "V.13";
+const VERSION_LABEL = "V.14";
 
 canvas.width = 1280;
 canvas.height = 720;
@@ -237,6 +246,16 @@ function startGeoCycle(now) {
   geoFadeStart = 0;
 }
 
+// ===== BLINK SOUND =====
+function playBlip() {
+  try {
+    // Rewind so rapid re-triggers don't get ignored by the browser
+    blipSound.currentTime = 0;
+    blipSound.volume = 0.6;
+    blipSound.play().catch(() => {});
+  } catch (e) {}
+}
+
 function updateGeoDot(now) {
   if (geoPhase === 'delay') {
     geoOpacity = 0;
@@ -247,6 +266,7 @@ function updateGeoDot(now) {
       geoDistance = geoSequence[0].dist;
       geoOpacity = 1;
       geoFrozenDirection = compassDirection;
+      playBlip();                     // ← FIRST blink of the cycle
     }
   } else if (geoPhase === 'stepping') {
     const sinceStep = now - geoStepStart;
@@ -263,6 +283,7 @@ function updateGeoDot(now) {
       if (geoStepIndex < geoSequence.length) {
         geoDistance = geoSequence[geoStepIndex].dist;
         geoOpacity = 1;
+        playBlip();                   // ← EVERY subsequent blink
       } else {
         geoPhase = 'pause';
         geoPhaseStart = now;
@@ -419,8 +440,6 @@ function isInRadarCone(dir) {
   return (dir >= 315 || dir <= 45);
 }
 
-// Draw the "1"/"2" blocks, their numerals, the version label, and ATT/SUS/DEC
-// all ON TOP of the bloom so they stay crisp and flat (no glow on the blocks).
 function drawLabels() {
   const lcx = canvas.width / 2;
   const lApexY = canvas.height * 0.72;
@@ -428,12 +447,10 @@ function drawLabels() {
 
   labelLayerCtx.clearRect(0, 0, labelLayerCanvas.width, labelLayerCanvas.height);
 
-  // --- "1" and "2" button BLOCKS (no bloom) ---
   labelLayerCtx.fillStyle = "#32ff32";
   labelLayerCtx.fillRect(lcx - lRadius * 0.65, lApexY + 20, 70, 40);
   labelLayerCtx.fillRect(lcx - lRadius * 0.65, lApexY + 80, 48, 40);
 
-  // --- "1" and "2" numerals (dark, crisp) ---
   labelLayerCtx.fillStyle = "#0b140b";
   labelLayerCtx.font = "28px monospace";
   labelLayerCtx.textAlign = "center";
@@ -441,14 +458,12 @@ function drawLabels() {
   labelLayerCtx.fillText("1", lcx - lRadius * 0.63 + 50, lApexY + 44);
   labelLayerCtx.fillText("2", lcx - lRadius * 0.63 + 24, lApexY + 104);
 
-  // --- Version label ---
   labelLayerCtx.fillStyle = "rgba(109, 255, 109, 0.85)";
   labelLayerCtx.font = "14px monospace";
   labelLayerCtx.textAlign = "left";
   labelLayerCtx.textBaseline = "middle";
   labelLayerCtx.fillText(VERSION_LABEL, lcx - lRadius * 0.63, lApexY + 140);
 
-  // --- ATT / SUS / DEC (kept crisp too, no bloom) ---
   labelLayerCtx.fillStyle = "#6dff6d";
   labelLayerCtx.font = "Bold 26px monospace";
   labelLayerCtx.textAlign = "left";
@@ -617,7 +632,7 @@ function drawRadarUI() {
     ctx.stroke();
   });
 
-  // ===== DASHED RANGE RINGS (in-between thickness) =====
+  // DASHED RANGE RINGS
   ctx.setLineDash([18, 28]);
   ctx.lineWidth = 3;
   [0.35, 0.55, 0.75].forEach(r => {
@@ -645,12 +660,9 @@ function drawRadarUI() {
     }
   }
 
-  // NOTE: The "1"/"2" green blocks are NO LONGER drawn here — they're on the label layer
-  // so they don't bloom. Everything else (arcs, rings, dot, static) still blooms.
-
   // ===== GEO DOT (bloomed!) =====
   if (geoOpacity > 0.003 && isInRadarCone(geoFrozenDirection)) {
-    const dotRadius = 11;                              // bigger core = more bloom energy
+    const dotRadius = 11;
     const r = radius * geoDistance;
     const canvasAngle = (geoFrozenDirection - 90) * (Math.PI / 180);
     const dotX = cx + Math.cos(canvasAngle) * r;
@@ -673,7 +685,7 @@ function drawRadarUI() {
     ctx.shadowBlur = 32;
     ctx.shadowColor = "rgb(80, 255, 80)";
 
-    // Core dot — brighter than before so it feeds the bloom more
+    // Core dot
     ctx.fillStyle = "rgb(80, 255, 80)";
     ctx.beginPath();
     ctx.arc(dotX, dotY, dotRadius, 0, Math.PI * 2);
@@ -684,7 +696,7 @@ function drawRadarUI() {
     ctx.arc(dotX, dotY, dotRadius * 0.7, 0, Math.PI * 2);
     ctx.fill();
 
-    // Direction line — thicker so it blooms visibly too
+    // Direction line
     const lineLength = 20;
     const endX = dotX + Math.cos(canvasAngle) * lineLength;
     const endY = dotY + Math.sin(canvasAngle) * lineLength;
@@ -795,4 +807,4 @@ function drawRadarUI() {
         rollCount = 0;
         rollSpeed = 30;
         lastRollTime = Date.now();
-        ctx
+        ctx.drawImage(tempCanvas, 0, 0
