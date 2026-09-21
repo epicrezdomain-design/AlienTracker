@@ -7,7 +7,9 @@
 <style>
   html, body {
     margin: 0;
+    padding: 0;
     background: #0b140b;
+    width: 100%;
     height: 100%;
     overflow: hidden;
   }
@@ -17,42 +19,47 @@
     --bloom-wide:   0.85;
   }
 
-  /* Centered wrapper; JS scales this element to fit the viewport */
-  #scaler {
+  /* The stage: a full-viewport container with a fixed 16:9 canvas inside.
+     The canvas itself uses object-fit: contain to letterbox cleanly on any screen. */
+  #stage {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    background: #0b140b;
+    overflow: hidden;
+  }
+
+  /* Shared sizing for all four canvases so they always line up */
+  #radar,
+  #bloomTight,
+  #bloomWide,
+  #labelLayer {
     position: absolute;
     top: 50%;
     left: 50%;
-    width: 1280px;
-    height: 720px;
-    transform-origin: center center;
-    transform: translate(-50%, -50%) scale(1);
-  }
-
-  .crt {
-    position: relative;
-    width: 1280px;
-    height: 720px;
-    overflow: hidden;
-    isolation: isolate;
-  }
-
-  canvas#radar {
+    transform: translate(-50%, -50%);
+    width: min(100vw, calc(100vh * 16 / 9));
+    height: min(100vh, calc(100vw * 9 / 16));
     display: block;
+  }
+
+  #radar {
     background: radial-gradient(circle at 50% 70%, #0f2a12, #081008 100%);
     filter: brightness(1.5) contrast(1.18);
   }
 
-  .bloom, .label-layer {
-    position: absolute;
-    top: 0; left: 0;
-    width: 100%; height: 100%;
+  #bloomTight,
+  #bloomWide {
+    mix-blend-mode: lighten;
     pointer-events: none;
   }
-  .bloom { mix-blend-mode: lighten; }
-  .bloom-tight { filter: blur(9px);  opacity: var(--bloom-tight); }
-  .bloom-wide  { filter: blur(24px) brightness(1.4); opacity: var(--bloom-wide); }
+  #bloomTight { filter: blur(9px);   opacity: var(--bloom-tight); }
+  #bloomWide  { filter: blur(24px) brightness(1.4); opacity: var(--bloom-wide); }
 
-  .label-layer { z-index: 5; }
+  #labelLayer {
+    pointer-events: none;
+    z-index: 5;
+  }
 
   .permission-notice {
     position: fixed;
@@ -127,13 +134,11 @@
   </div>
 </div>
 
-<div id="scaler">
-  <div class="crt">
-    <canvas id="radar"></canvas>
-    <canvas id="bloomTight" class="bloom bloom-tight" width="1280" height="720"></canvas>
-    <canvas id="bloomWide"  class="bloom bloom-wide"  width="1280" height="720"></canvas>
-    <canvas id="labelLayer" class="label-layer" width="1280" height="720"></canvas>
-  </div>
+<div id="stage">
+  <canvas id="radar" width="1280" height="720"></canvas>
+  <canvas id="bloomTight" width="1280" height="720"></canvas>
+  <canvas id="bloomWide"  width="1280" height="720"></canvas>
+  <canvas id="labelLayer" width="1280" height="720"></canvas>
 </div>
 
 <audio id="backgroundAudio" loop preload="auto">
@@ -156,25 +161,12 @@ const countdownElement = document.getElementById("countdown");
 const backgroundAudio = document.getElementById('backgroundAudio');
 const blipSound = document.getElementById('blipSound');
 
-const VERSION_LABEL = "V.17";
+const VERSION_LABEL = "V.18";
+const SHOW_DEBUG = false;
 
-const SHOW_DEBUG = false;   // set true to show on-screen debug text
-
+// Canvas internal resolution stays 1280x720 — CSS handles the visual size
 canvas.width = 1280;
 canvas.height = 720;
-
-// ===== SCALE THE WHOLE 1280x720 STAGE TO FIT THE VIEWPORT =====
-// Only ONE copy exists; JS just scales the wrapper div.
-function fitStage() {
-  const scaler = document.getElementById('scaler');
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
-  const scale = Math.min(vw / 1280, vh / 720);
-  scaler.style.transform = `translate(-50%, -50%) scale(${scale})`;
-}
-window.addEventListener('resize', fitStage);
-window.addEventListener('orientationchange', fitStage);
-fitStage();
 
 // ===== BLOOM LAYERS =====
 const bloomTightCanvas = document.getElementById('bloomTight');
@@ -272,7 +264,6 @@ function startGeoCycle(now) {
   blipPreFired = false;
 }
 
-// ===== BLINK SOUND =====
 function playBlip() {
   try {
     blipSound.currentTime = 0;
@@ -785,7 +776,7 @@ function drawRadarUI() {
     ctx.restore();
   }
 
-  // DEBUG OVERLAY (off by default in V.17)
+  // DEBUG OVERLAY (off by default)
   if (SHOW_DEBUG) {
     ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
     ctx.fillRect(6, 6, 300, 118);
