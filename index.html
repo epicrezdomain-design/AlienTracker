@@ -17,15 +17,23 @@
     --bloom-wide:   0.85;
   }
 
+  /* Centered wrapper; JS scales this element to fit the viewport */
+  #scaler {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 1280px;
+    height: 720px;
+    transform-origin: center center;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
   .crt {
     position: relative;
     width: 1280px;
     height: 720px;
-    margin: auto;
     overflow: hidden;
     isolation: isolate;
-    /* Fit the fixed 1280x720 stage to whatever viewport the phone has */
-    transform-origin: top center;
   }
 
   canvas#radar {
@@ -104,16 +112,6 @@
     font-weight: bold;
     min-height: 30px;
   }
-
-  /* Scale the 1280x720 CRT stage to fit the viewport, mobile included */
-  .stage-wrap {
-    position: fixed;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: #0b140b;
-  }
 </style>
 </head>
 <body>
@@ -129,8 +127,8 @@
   </div>
 </div>
 
-<div class="stage-wrap">
-  <div class="crt" id="crtStage">
+<div id="scaler">
+  <div class="crt">
     <canvas id="radar"></canvas>
     <canvas id="bloomTight" class="bloom bloom-tight" width="1280" height="720"></canvas>
     <canvas id="bloomWide"  class="bloom bloom-wide"  width="1280" height="720"></canvas>
@@ -143,9 +141,6 @@
   Your browser does not support the audio element.
 </audio>
 
-<!-- ===== BLINK SOUND EFFECT =====
-     Rename your mp3 to blip.mp3 and put it next to this HTML file,
-     or change the src below to match your file. -->
 <audio id="blipSound" preload="auto">
   <source src="blip.mp3" type="audio/mp3">
   Your browser does not support the audio element.
@@ -161,21 +156,21 @@ const countdownElement = document.getElementById("countdown");
 const backgroundAudio = document.getElementById('backgroundAudio');
 const blipSound = document.getElementById('blipSound');
 
-const VERSION_LABEL = "V.16";
+const VERSION_LABEL = "V.17";
 
-// Set to false once mobile is confirmed working to hide the debug text
-const SHOW_DEBUG = true;
+const SHOW_DEBUG = false;   // set true to show on-screen debug text
 
 canvas.width = 1280;
 canvas.height = 720;
 
-// ===== SCALE STAGE TO VIEWPORT =====
+// ===== SCALE THE WHOLE 1280x720 STAGE TO FIT THE VIEWPORT =====
+// Only ONE copy exists; JS just scales the wrapper div.
 function fitStage() {
-  const stage = document.getElementById('crtStage');
+  const scaler = document.getElementById('scaler');
   const vw = window.innerWidth;
   const vh = window.innerHeight;
   const scale = Math.min(vw / 1280, vh / 720);
-  stage.style.transform = `scale(${scale})`;
+  scaler.style.transform = `translate(-50%, -50%) scale(${scale})`;
 }
 window.addEventListener('resize', fitStage);
 window.addEventListener('orientationchange', fitStage);
@@ -287,20 +282,14 @@ function playBlip() {
   } catch (e) {}
 }
 
-// Warm up BOTH audio elements inside the user gesture.
-// Mobile browsers only grant playback permission to elements "touched" during a real tap.
 function warmUpAudio() {
   try {
     backgroundAudio.volume = 0.4;
     const bgPlay = backgroundAudio.play();
-    if (bgPlay && bgPlay.then) {
-      bgPlay.then(() => { /* keep playing as bg music */ }).catch(() => {});
-    }
+    if (bgPlay && bgPlay.then) bgPlay.catch(() => {});
   } catch (e) {}
 
   try {
-    // Play the blip at zero volume, then immediately pause + reset.
-    // This "unlocks" it so later plays work without a fresh gesture.
     blipSound.volume = 0;
     const blipPlay = blipSound.play();
     if (blipPlay && blipPlay.then) {
@@ -320,12 +309,6 @@ function warmUpAudio() {
 }
 
 function updateGeoDot(now) {
-  // MOBILE FALLBACK — if no compass events are arriving, slowly sweep the direction
-  // so the dot has a chance to appear at various angles.
-  if (!deviceOrientation.available) {
-    compassDirection = (now / 40) % 360;
-  }
-
   if (geoPhase === 'delay') {
     geoOpacity = 0;
     if (now - geoPhaseStart >= INITIAL_DELAY_MS) {
@@ -335,7 +318,6 @@ function updateGeoDot(now) {
       geoDistance = geoSequence[0].dist;
       geoOpacity = 1;
       geoFrozenDirection = compassDirection;
-      // Blip already fired BLIP_EARLY_MS ago via the pre-fire check.
     }
   } else if (geoPhase === 'stepping') {
     const sinceStep = now - geoStepStart;
@@ -397,9 +379,7 @@ canvas.addEventListener('click', (e) => {
 function playBackgroundAudio() {
   backgroundAudio.volume = 0.4;
   const playPromise = backgroundAudio.play();
-  if (playPromise !== undefined) {
-    playPromise.catch(() => {});
-  }
+  if (playPromise !== undefined) playPromise.catch(() => {});
 }
 
 function startCountdown(duration, callback) {
@@ -428,7 +408,6 @@ function initDeviceOrientation() {
 
   if (window.DeviceOrientationEvent) {
     if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-      // iOS 13+
       enableButton.addEventListener('click', () => {
         warmUpAudio();
         DeviceOrientationEvent.requestPermission()
@@ -437,7 +416,6 @@ function initDeviceOrientation() {
               window.addEventListener('deviceorientation', handleOrientation);
               deviceOrientation.available = true;
             } else {
-              // Denied — mouse fallback (still lets the radar run)
               setupMouseOrientation();
             }
             enableButton.disabled = true;
@@ -452,7 +430,6 @@ function initDeviceOrientation() {
           });
       });
     } else {
-      // Android / desktop
       enableButton.addEventListener('click', () => {
         warmUpAudio();
         window.addEventListener('deviceorientation', handleOrientation);
@@ -463,7 +440,6 @@ function initDeviceOrientation() {
       });
     }
   } else {
-    // No DeviceOrientationEvent at all
     enableButton.addEventListener('click', () => {
       warmUpAudio();
       setupMouseOrientation();
@@ -501,7 +477,6 @@ function setupMouseOrientation() {
     compassDirection = angle;
     updateBorderHighlights();
   });
-  // Touch drag also drives direction (for phones without compass)
   canvas.addEventListener('touchmove', (e) => {
     if (!e.touches[0]) return;
     const rect = canvas.getBoundingClientRect();
@@ -767,8 +742,6 @@ function drawRadarUI() {
   }
 
   // ===== GEO DOT =====
-  // NOTE: cone check removed — the dot now always renders during its visible phase
-  // so it works reliably on mobile where the phone's heading is unknown.
   if (geoOpacity > 0.003) {
     const dotRadius = 11;
     const r = radius * geoDistance;
@@ -779,7 +752,6 @@ function drawRadarUI() {
     ctx.save();
     ctx.globalAlpha = Math.max(0, Math.min(1, geoOpacity));
 
-    // Big soft outer halo
     ctx.globalAlpha = Math.max(0, Math.min(1, geoOpacity)) * 0.35;
     ctx.fillStyle = "rgb(120, 255, 120)";
     ctx.beginPath();
@@ -813,7 +785,7 @@ function drawRadarUI() {
     ctx.restore();
   }
 
-  // ===== DEBUG OVERLAY (top-left, for mobile diagnosis) =====
+  // DEBUG OVERLAY (off by default in V.17)
   if (SHOW_DEBUG) {
     ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
     ctx.fillRect(6, 6, 300, 118);
