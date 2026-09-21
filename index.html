@@ -19,8 +19,6 @@
     --bloom-wide:   0.85;
   }
 
-  /* The stage: a full-viewport container with a fixed 16:9 canvas inside.
-     The canvas itself uses object-fit: contain to letterbox cleanly on any screen. */
   #stage {
     position: relative;
     width: 100vw;
@@ -29,7 +27,6 @@
     overflow: hidden;
   }
 
-  /* Shared sizing for all four canvases so they always line up */
   #radar,
   #bloomTight,
   #bloomWide,
@@ -161,10 +158,9 @@ const countdownElement = document.getElementById("countdown");
 const backgroundAudio = document.getElementById('backgroundAudio');
 const blipSound = document.getElementById('blipSound');
 
-const VERSION_LABEL = "V.18";
+const VERSION_LABEL = "V.19";
 const SHOW_DEBUG = false;
 
-// Canvas internal resolution stays 1280x720 — CSS handles the visual size
 canvas.width = 1280;
 canvas.height = 720;
 
@@ -249,7 +245,7 @@ let geoStepIndex = 0;
 let geoStepStart = 0;
 let geoDistance = geoSequence[0].dist;
 let geoOpacity = 0;
-let geoFrozenDirection = 0;
+let geoFrozenDirection = 0;   // now tracks compass LIVE instead of being frozen
 let blipPreFired = false;
 
 function startGeoCycle(now) {
@@ -308,9 +304,12 @@ function updateGeoDot(now) {
       geoStepStart = now;
       geoDistance = geoSequence[0].dist;
       geoOpacity = 1;
-      geoFrozenDirection = compassDirection;
+      // direction now tracks live — no freeze here
     }
   } else if (geoPhase === 'stepping') {
+    // LIVE COMPASS TRACK — dot moves radially as you spin the phone
+    geoFrozenDirection = compassDirection;
+
     const sinceStep = now - geoStepStart;
     if (sinceStep <= STEP_HOLD_MS) {
       geoOpacity = 1;
@@ -341,6 +340,7 @@ function updateGeoDot(now) {
     }
   } else if (geoPhase === 'pause') {
     geoOpacity = 0;
+    geoFrozenDirection = compassDirection;   // keep border highlights live too
     if (now - geoPhaseStart >= CYCLE_PAUSE_MS) {
       startGeoCycle(now);
     }
@@ -732,7 +732,7 @@ function drawRadarUI() {
     }
   }
 
-  // ===== GEO DOT =====
+  // ===== GEO DOT (tracks live compass heading) =====
   if (geoOpacity > 0.003) {
     const dotRadius = 11;
     const r = radius * geoDistance;
@@ -776,7 +776,6 @@ function drawRadarUI() {
     ctx.restore();
   }
 
-  // DEBUG OVERLAY (off by default)
   if (SHOW_DEBUG) {
     ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
     ctx.fillRect(6, 6, 300, 118);
