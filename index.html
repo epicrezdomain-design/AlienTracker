@@ -2,17 +2,19 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>Radar UI</title>
 <style>
   html, body {
     margin: 0;
     background: #0b140b;
     height: 100%;
+    overflow: hidden;
   }
 
   :root {
-    --bloom-tight:  0.95;   /* soft skirt around bright lines */
-    --bloom-wide:   0.85;   /* bigger halo */
+    --bloom-tight:  0.95;
+    --bloom-wide:   0.85;
   }
 
   .crt {
@@ -22,16 +24,16 @@
     margin: auto;
     overflow: hidden;
     isolation: isolate;
+    /* Fit the fixed 1280x720 stage to whatever viewport the phone has */
+    transform-origin: top center;
   }
 
   canvas#radar {
     display: block;
     background: radial-gradient(circle at 50% 70%, #0f2a12, #081008 100%);
-    /* GAMMA BOOST: brighter + slightly punchier contrast */
     filter: brightness(1.5) contrast(1.18);
   }
 
-  /* Bloom layers: blurred copies of the radar, layered over it with 'lighten' blend */
   .bloom, .label-layer {
     position: absolute;
     top: 0; left: 0;
@@ -42,15 +44,14 @@
   .bloom-tight { filter: blur(9px);  opacity: var(--bloom-tight); }
   .bloom-wide  { filter: blur(24px) brightness(1.4); opacity: var(--bloom-wide); }
 
-  /* Label layer sits ABOVE the bloom, so text + buttons are never blurred */
   .label-layer { z-index: 5; }
 
   .permission-notice {
-    position: absolute;
+    position: fixed;
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    background: rgba(0, 20, 0, 0.9);
+    background: rgba(0, 20, 0, 0.92);
     color: #6dff6d;
     padding: 30px;
     border: 2px solid #6dff6d;
@@ -74,9 +75,10 @@
     font-size: 18px;
     margin-top: 20px;
     transition: all 0.3s;
+    -webkit-tap-highlight-color: transparent;
   }
 
-  .enable-button:hover {
+  .enable-button:hover, .enable-button:active {
     background: #6dff6d;
     color: #0b140b;
     box-shadow: 0 0 20px rgba(109, 255, 109, 0.8);
@@ -102,6 +104,16 @@
     font-weight: bold;
     min-height: 30px;
   }
+
+  /* Scale the 1280x720 CRT stage to fit the viewport, mobile included */
+  .stage-wrap {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #0b140b;
+  }
 </style>
 </head>
 <body>
@@ -117,11 +129,13 @@
   </div>
 </div>
 
-<div class="crt">
-  <canvas id="radar"></canvas>
-  <canvas id="bloomTight" class="bloom bloom-tight" width="1280" height="720"></canvas>
-  <canvas id="bloomWide"  class="bloom bloom-wide"  width="1280" height="720"></canvas>
-  <canvas id="labelLayer" class="label-layer" width="1280" height="720"></canvas>
+<div class="stage-wrap">
+  <div class="crt" id="crtStage">
+    <canvas id="radar"></canvas>
+    <canvas id="bloomTight" class="bloom bloom-tight" width="1280" height="720"></canvas>
+    <canvas id="bloomWide"  class="bloom bloom-wide"  width="1280" height="720"></canvas>
+    <canvas id="labelLayer" class="label-layer" width="1280" height="720"></canvas>
+  </div>
 </div>
 
 <audio id="backgroundAudio" loop preload="auto">
@@ -147,10 +161,25 @@ const countdownElement = document.getElementById("countdown");
 const backgroundAudio = document.getElementById('backgroundAudio');
 const blipSound = document.getElementById('blipSound');
 
-const VERSION_LABEL = "V.15";
+const VERSION_LABEL = "V.16";
+
+// Set to false once mobile is confirmed working to hide the debug text
+const SHOW_DEBUG = true;
 
 canvas.width = 1280;
 canvas.height = 720;
+
+// ===== SCALE STAGE TO VIEWPORT =====
+function fitStage() {
+  const stage = document.getElementById('crtStage');
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const scale = Math.min(vw / 1280, vh / 720);
+  stage.style.transform = `scale(${scale})`;
+}
+window.addEventListener('resize', fitStage);
+window.addEventListener('orientationchange', fitStage);
+fitStage();
 
 // ===== BLOOM LAYERS =====
 const bloomTightCanvas = document.getElementById('bloomTight');
@@ -158,15 +187,13 @@ const bloomWideCanvas  = document.getElementById('bloomWide');
 const bloomTightCtx = bloomTightCanvas.getContext('2d');
 const bloomWideCtx  = bloomWideCanvas.getContext('2d');
 
-// Label layer: text + button blocks drawn here appear ON TOP of the bloom (no blur)
 const labelLayerCanvas = document.getElementById('labelLayer');
 const labelLayerCtx = labelLayerCanvas.getContext('2d');
 
 const greenDots = [];
-
 let compassDirection = 0;
 
-// ===== GEO DOT STEPPED APPROACH =====
+// ===== GEO DOT SEQUENCE =====
 const APPROACH_DISTANCES = [0.95, 0.75, 0.55, 0.35];
 const APPROACH_DELAYS_MS = [3000, 2000, 1500, 1000];
 const CLOSEST_DISTANCE   = 0.15;
@@ -189,7 +216,6 @@ const STEP_HOLD_MS     = 200;
 const STEP_FADE_MS     = 700;
 const CYCLE_PAUSE_MS   = 4000;
 
-// How early the blip fires before the dot pops in (ms)
 const BLIP_EARLY_MS = 250;
 
 function rand(min, max) { return min + Math.random() * (max - min); }
@@ -237,7 +263,7 @@ let geoStepStart = 0;
 let geoDistance = geoSequence[0].dist;
 let geoOpacity = 0;
 let geoFrozenDirection = 0;
-let blipPreFired = false;   // ← makes sure each blip fires only once per step
+let blipPreFired = false;
 
 function startGeoCycle(now) {
   geoSequence = buildGeoSequence();
@@ -254,14 +280,52 @@ function startGeoCycle(now) {
 // ===== BLINK SOUND =====
 function playBlip() {
   try {
-    // Rewind so rapid re-triggers don't get ignored by the browser
     blipSound.currentTime = 0;
     blipSound.volume = 0.6;
-    blipSound.play().catch(() => {});
+    const p = blipSound.play();
+    if (p && p.catch) p.catch(() => {});
   } catch (e) {}
 }
 
+// Warm up BOTH audio elements inside the user gesture.
+// Mobile browsers only grant playback permission to elements "touched" during a real tap.
+function warmUpAudio() {
+  try {
+    backgroundAudio.volume = 0.4;
+    const bgPlay = backgroundAudio.play();
+    if (bgPlay && bgPlay.then) {
+      bgPlay.then(() => { /* keep playing as bg music */ }).catch(() => {});
+    }
+  } catch (e) {}
+
+  try {
+    // Play the blip at zero volume, then immediately pause + reset.
+    // This "unlocks" it so later plays work without a fresh gesture.
+    blipSound.volume = 0;
+    const blipPlay = blipSound.play();
+    if (blipPlay && blipPlay.then) {
+      blipPlay.then(() => {
+        blipSound.pause();
+        blipSound.currentTime = 0;
+        blipSound.volume = 0.6;
+      }).catch(() => {
+        blipSound.volume = 0.6;
+      });
+    } else {
+      blipSound.volume = 0.6;
+    }
+  } catch (e) {
+    blipSound.volume = 0.6;
+  }
+}
+
 function updateGeoDot(now) {
+  // MOBILE FALLBACK — if no compass events are arriving, slowly sweep the direction
+  // so the dot has a chance to appear at various angles.
+  if (!deviceOrientation.available) {
+    compassDirection = (now / 40) % 360;
+  }
+
   if (geoPhase === 'delay') {
     geoOpacity = 0;
     if (now - geoPhaseStart >= INITIAL_DELAY_MS) {
@@ -271,7 +335,7 @@ function updateGeoDot(now) {
       geoDistance = geoSequence[0].dist;
       geoOpacity = 1;
       geoFrozenDirection = compassDirection;
-      // No playBlip() here — it already fired BLIP_EARLY_MS ago via the pre-fire check.
+      // Blip already fired BLIP_EARLY_MS ago via the pre-fire check.
     }
   } else if (geoPhase === 'stepping') {
     const sinceStep = now - geoStepStart;
@@ -282,7 +346,6 @@ function updateGeoDot(now) {
       geoOpacity = 1 - ft;
     }
 
-    // ---- PRE-FIRE: play the blip BLIP_EARLY_MS before the NEXT step ----
     const nextStepAt = geoSequence[geoStepIndex].delay;
     const timeUntilNext = nextStepAt - sinceStep;
     if (!blipPreFired && timeUntilNext <= BLIP_EARLY_MS && timeUntilNext > 0) {
@@ -293,11 +356,10 @@ function updateGeoDot(now) {
     if (sinceStep >= geoSequence[geoStepIndex].delay) {
       geoStepIndex++;
       geoStepStart = now;
-      blipPreFired = false;           // reset so the next step's blip can fire
+      blipPreFired = false;
       if (geoStepIndex < geoSequence.length) {
         geoDistance = geoSequence[geoStepIndex].dist;
         geoOpacity = 1;
-        // No playBlip() here — handled by the pre-fire above.
       } else {
         geoPhase = 'pause';
         geoPhaseStart = now;
@@ -325,19 +387,18 @@ const tempCtx = tempCanvas.getContext('2d');
 
 canvas.addEventListener('click', (e) => {
   const rect = canvas.getBoundingClientRect();
-  greenDots.push({ x: e.clientX - rect.left, y: e.clientY - rect.top, life: 100 });
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const x = (e.clientX - rect.left) * scaleX;
+  const y = (e.clientY - rect.top) * scaleY;
+  greenDots.push({ x, y, life: 100 });
 });
 
 function playBackgroundAudio() {
   backgroundAudio.volume = 0.4;
   const playPromise = backgroundAudio.play();
   if (playPromise !== undefined) {
-    playPromise.catch(() => {
-      const newAudio = new Audio(backgroundAudio.src);
-      newAudio.volume = 0.4;
-      newAudio.loop = true;
-      newAudio.play().catch(e => console.log("Audio failed:", e));
-    });
+    playPromise.catch(() => {});
   }
 }
 
@@ -367,23 +428,33 @@ function initDeviceOrientation() {
 
   if (window.DeviceOrientationEvent) {
     if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+      // iOS 13+
       enableButton.addEventListener('click', () => {
-        playBackgroundAudio();
+        warmUpAudio();
         DeviceOrientationEvent.requestPermission()
           .then(permissionState => {
             if (permissionState === 'granted') {
               window.addEventListener('deviceorientation', handleOrientation);
               deviceOrientation.available = true;
-              enableButton.disabled = true;
-              enableButton.textContent = "INITIALIZING...";
-              startCountdown(.8, startRadarSystem);
+            } else {
+              // Denied — mouse fallback (still lets the radar run)
+              setupMouseOrientation();
             }
+            enableButton.disabled = true;
+            enableButton.textContent = "INITIALIZING...";
+            startCountdown(.8, startRadarSystem);
           })
-          .catch(console.error);
+          .catch(() => {
+            setupMouseOrientation();
+            enableButton.disabled = true;
+            enableButton.textContent = "INITIALIZING...";
+            startCountdown(.8, startRadarSystem);
+          });
       });
     } else {
+      // Android / desktop
       enableButton.addEventListener('click', () => {
-        playBackgroundAudio();
+        warmUpAudio();
         window.addEventListener('deviceorientation', handleOrientation);
         deviceOrientation.available = true;
         enableButton.disabled = true;
@@ -392,8 +463,9 @@ function initDeviceOrientation() {
       });
     }
   } else {
+    // No DeviceOrientationEvent at all
     enableButton.addEventListener('click', () => {
-      playBackgroundAudio();
+      warmUpAudio();
       setupMouseOrientation();
       enableButton.disabled = true;
       enableButton.textContent = "INITIALIZING...";
@@ -415,8 +487,10 @@ function handleOrientation(event) {
 function setupMouseOrientation() {
   canvas.addEventListener('mousemove', (e) => {
     const rect = canvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const mx = (e.clientX - rect.left) * scaleX;
+    const my = (e.clientY - rect.top) * scaleY;
     const centerX = canvas.width / 2;
     const centerY = canvas.height * 0.72;
     const dx = mx - centerX;
@@ -427,6 +501,24 @@ function setupMouseOrientation() {
     compassDirection = angle;
     updateBorderHighlights();
   });
+  // Touch drag also drives direction (for phones without compass)
+  canvas.addEventListener('touchmove', (e) => {
+    if (!e.touches[0]) return;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const mx = (e.touches[0].clientX - rect.left) * scaleX;
+    const my = (e.touches[0].clientY - rect.top) * scaleY;
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height * 0.72;
+    const dx = mx - centerX;
+    const dy = my - centerY;
+    let angle = Math.atan2(dy, dx) * (180 / Math.PI);
+    angle = (angle + 90) % 360;
+    if (angle < 0) angle += 360;
+    compassDirection = angle;
+    updateBorderHighlights();
+  }, { passive: true });
 }
 
 function updateBorderHighlights() {
@@ -674,8 +766,10 @@ function drawRadarUI() {
     }
   }
 
-  // ===== GEO DOT (bloomed!) =====
-  if (geoOpacity > 0.003 && isInRadarCone(geoFrozenDirection)) {
+  // ===== GEO DOT =====
+  // NOTE: cone check removed — the dot now always renders during its visible phase
+  // so it works reliably on mobile where the phone's heading is unknown.
+  if (geoOpacity > 0.003) {
     const dotRadius = 11;
     const r = radius * geoDistance;
     const canvasAngle = (geoFrozenDirection - 90) * (Math.PI / 180);
@@ -685,32 +779,27 @@ function drawRadarUI() {
     ctx.save();
     ctx.globalAlpha = Math.max(0, Math.min(1, geoOpacity));
 
-    // Big soft outer halo — the bloom picks this up hardest
+    // Big soft outer halo
     ctx.globalAlpha = Math.max(0, Math.min(1, geoOpacity)) * 0.35;
     ctx.fillStyle = "rgb(120, 255, 120)";
     ctx.beginPath();
     ctx.arc(dotX, dotY, dotRadius * 3, 0, Math.PI * 2);
     ctx.fill();
 
-    // Restore for solid core
     ctx.globalAlpha = Math.max(0, Math.min(1, geoOpacity));
 
-    // Bright glow around the core
     ctx.shadowBlur = 32;
     ctx.shadowColor = "rgb(80, 255, 80)";
 
-    // Core dot
     ctx.fillStyle = "rgb(80, 255, 80)";
     ctx.beginPath();
     ctx.arc(dotX, dotY, dotRadius, 0, Math.PI * 2);
     ctx.fill();
 
-    // Stacked inner core for extra punch
     ctx.beginPath();
     ctx.arc(dotX, dotY, dotRadius * 0.7, 0, Math.PI * 2);
     ctx.fill();
 
-    // Direction line
     const lineLength = 20;
     const endX = dotX + Math.cos(canvasAngle) * lineLength;
     const endY = dotY + Math.sin(canvasAngle) * lineLength;
@@ -722,6 +811,21 @@ function drawRadarUI() {
     ctx.stroke();
 
     ctx.restore();
+  }
+
+  // ===== DEBUG OVERLAY (top-left, for mobile diagnosis) =====
+  if (SHOW_DEBUG) {
+    ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+    ctx.fillRect(6, 6, 300, 118);
+    ctx.fillStyle = "#0f0";
+    ctx.font = "14px monospace";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillText(`dir: ${compassDirection.toFixed(0)}`, 12, 12);
+    ctx.fillText(`phase: ${geoPhase}`, 12, 32);
+    ctx.fillText(`opacity: ${geoOpacity.toFixed(2)}`, 12, 52);
+    ctx.fillText(`cone: ${isInRadarCone(geoFrozenDirection)}`, 12, 72);
+    ctx.fillText(`compassAvail: ${deviceOrientation.available}`, 12, 92);
   }
 
   // ===== WARP EFFECT =====
