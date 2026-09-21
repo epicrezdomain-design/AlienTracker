@@ -17,6 +17,7 @@
   :root {
     --bloom-tight:  0.95;
     --bloom-wide:   0.85;
+    --shift-x:      200px;   /* ← how far RIGHT the radar is shifted. Negative = left */
   }
 
   #stage {
@@ -33,7 +34,7 @@
   #labelLayer {
     position: absolute;
     top: 50%;
-    left: 50%;
+    left: calc(50% + var(--shift-x));
     transform: translate(-50%, -50%);
     width: min(100vw, calc(100vh * 16 / 9));
     height: min(100vh, calc(100vw * 9 / 16));
@@ -158,7 +159,7 @@ const countdownElement = document.getElementById("countdown");
 const backgroundAudio = document.getElementById('backgroundAudio');
 const blipSound = document.getElementById('blipSound');
 
-const VERSION_LABEL = "V.19";
+const VERSION_LABEL = "V.20";
 const SHOW_DEBUG = false;
 
 canvas.width = 1280;
@@ -245,7 +246,7 @@ let geoStepIndex = 0;
 let geoStepStart = 0;
 let geoDistance = geoSequence[0].dist;
 let geoOpacity = 0;
-let geoFrozenDirection = 0;   // now tracks compass LIVE instead of being frozen
+let geoFrozenDirection = 0;
 let blipPreFired = false;
 
 function startGeoCycle(now) {
@@ -304,10 +305,9 @@ function updateGeoDot(now) {
       geoStepStart = now;
       geoDistance = geoSequence[0].dist;
       geoOpacity = 1;
-      // direction now tracks live — no freeze here
     }
   } else if (geoPhase === 'stepping') {
-    // LIVE COMPASS TRACK — dot moves radially as you spin the phone
+    // Live compass tracking — dot moves radially as you spin the phone
     geoFrozenDirection = compassDirection;
 
     const sinceStep = now - geoStepStart;
@@ -340,7 +340,7 @@ function updateGeoDot(now) {
     }
   } else if (geoPhase === 'pause') {
     geoOpacity = 0;
-    geoFrozenDirection = compassDirection;   // keep border highlights live too
+    geoFrozenDirection = compassDirection;
     if (now - geoPhaseStart >= CYCLE_PAUSE_MS) {
       startGeoCycle(now);
     }
